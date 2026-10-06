@@ -1,0 +1,46 @@
+cie: TYPESAFE_API_KEY is not set — 17 span(s) the rules could not decide are left for review, none judged by the model
+cie: TYPESAFE_API_KEY is not set — 8 span(s) the rules could not decide are left for review, none judged by the model
+cie: TYPESAFE_API_KEY is not set — 2 span(s) the rules could not decide are left for review, none judged by the model
+cie: TYPESAFE_API_KEY is not set — 5 span(s) the rules could not decide are left for review, none judged by the model
+cie: TYPESAFE_API_KEY is not set — 38 span(s) the rules could not decide are left for review, none judged by the model
+cie: TYPESAFE_API_KEY is not set — 2 span(s) the rules could not decide are left for review, none judged by the model
+cie: TYPESAFE_API_KEY is not set — 2 span(s) the rules could not decide are left for review, none judged by the model
+cie: TYPESAFE_API_KEY is not set — 36 span(s) the rules could not decide are left for review, none judged by the model
+cie: TYPESAFE_API_KEY is not set — 1 span(s) the rules could not decide are left for review, none judged by the model
+cie: TYPESAFE_API_KEY is not set — 2 span(s) the rules could not decide are left for review, none judged by the model
+cie: TYPESAFE_API_KEY is not set — 12 span(s) the rules could not decide are left for review, none judged by the model
+cie: TYPESAFE_API_KEY is not set — 1 span(s) the rules could not decide are left for review, none judged by the model
+cie: TYPESAFE_API_KEY is not set — 19 span(s) the rules could not decide are left for review, none judged by the model
+cie: TYPESAFE_API_KEY is not set — 2 span(s) the rules could not decide are left for review, none judged by the model
+cie: TYPESAFE_API_KEY is not set — 17 span(s) the rules could not decide are left for review, none judged by the model
+cie: TYPESAFE_API_KEY is not set — 2 span(s) the rules could not decide are left for review, none judged by the model
+cie: TYPESAFE_API_KEY is not set — 1 span(s) the rules could not decide are left for review, none judged by the model
+cie: TYPESAFE_API_KEY is not set — 2 span(s) the rules could not decide are left for review, none judged by the model
+724 first-parent commits since 2024-06-01 touch pydantic
+  d4bf6f9d 2026-08-03 findings= 1 spans= 17 verified=  0 (true 0, false 0) recall=0/0 tokens=0  Revert "Make `FailFast` hashable" (#13536)
+  16275254 2025-11-27 findings= 1 spans=  0 verified=  0 (true 0, false 0) recall=0/0 tokens=0  Align `@field_serializer` logic with `@field_val
+  34baf125 2025-10-07 findings= 2 spans=  1 verified=  0 (true 0, false 0) recall=0/0 tokens=0  Add `union_format` parameter to JSON Schema gene
+  86491ccf 2025-03-26 findings= 1 spans=  0 verified=  0 (true 0, false 0) recall=0/0 tokens=0  Allow `@with_config` decorator to be used with k
+  acb0f10f 2025-02-26 findings= 2 spans= 16 verified=  0 (true 0, false 0) recall=0/0 tokens=0  Improve alias configutation APIs (#11468)
+  55dd8dae 2025-01-23 findings= 2 spans=  2 verified=  0 (true 0, false 0) recall=0/0 tokens=0  Fix url python serialization (#11330)
+  6f31f8f6 2024-11-26 findings= 3 spans=  5 verified=  0 (true 0, false 0) recall=0/0 tokens=0  Update ruff to 0.8.0 (#10980)
+  73509eda 2024-11-21 findings= 9 spans= 38 verified=  0 (true 0, false 0) recall=0/0 tokens=0  Fix url constraint application (#10922)
+  80353c29 2024-10-28 findings= 2 spans=  4 verified=  4 (true 4, false 0) recall=4/4 tokens=0  `CoreMetadata` refactor with an emphasis on docu
+  d183bf5a 2024-10-21 findings= 1 spans=  2 verified=  0 (true 0, false 0) recall=0/0 tokens=0  Clean up the `mypy` plugin implementation (#1066
+  06a04b59 2024-10-18 findings= 2 spans=  3 verified=  1 (true 1, false 0) recall=1/1 tokens=0  Use overloads for `Field` and `PrivateAttr` func
+  76222d2e 2024-10-11 findings= 2 spans= 36 verified=  0 (true 0, false 0) recall=2/2 tokens=0  Support constraint application for `Base64Etc` t
+  e0604253 2024-09-06 findings= 1 spans=  1 verified=  0 (true 0, false 0) recall=1/1 tokens=0  Cleanly `defer_build` on `TypeAdapters`, removin
+  6db2a0cd 2024-09-05 findings= 2 spans=  2 verified=  0 (true 0, false 0) recall=2/4 tokens=0  Don't allow customization of `SchemaGenerator` u
+  dfe84151 2024-08-20 findings= 1 spans= 12 verified=  0 (true 0, false 0) recall=1/1 tokens=0  Breaking Change: Fix JSON Schema generation for 
+  28833eeb 2024-08-13 findings= 1 spans=  1 verified=  0 (true 0, false 0) recall=1/1 tokens=0  Revert "Experimental feature: opt-in fast build 
+  d2f944cc 2024-08-12 findings= 1 spans=  2 verified=  2 (true 2, false 0) recall=2/2 tokens=0  Improve `pyright` tests, refactor model decorato
+  d6df62aa 2024-07-31 findings=17 spans= 23 verified=  0 (true 0, false 0) recall=0/0 tokens=0  Apply `strict=True` to `__init__` in mypy plugin
+  fe081817 2024-07-30 findings= 2 spans=  2 verified=  0 (true 0, false 0) recall=0/0 tokens=0  Fix typing for `IPvAnyAddress` and `IPvAnyInterf
+  92f1d512 2024-07-22 findings= 7 spans= 17 verified=  0 (true 0, false 0) recall=0/0 tokens=0  Handle frozen fields on a per-field basis (#9935
+  93ced97b 2024-07-18 findings= 4 spans=  7 verified=  1 (true 1, false 0) recall=0/0 tokens=0  Prevent type error for exotic BaseModel/RootMode
+  45813eb7 2024-06-12 findings= 1 spans=  1 verified=  0 (true 0, false 0) recall=0/0 tokens=0  Fix type hint on `IpvAnyAddress` (#9640)
+  055f900f 2024-06-12 findings= 1 spans=  0 verified=  0 (true 0, false 0) recall=0/0 tokens=0  V1 bump to v1.10.16 (#9639)
+  8333bd59 2024-06-07 findings= 1 spans=  2 verified=  0 (true 0, false 0) recall=0/0 tokens=0  Fix bug with mypy plugin's handling of covariant
+
+pooled over 24 commits: precision 8/8 = 1.00   recall 14/16 = 0.88   spans 194   tokens 0 ($0.0000)
+FINISHED

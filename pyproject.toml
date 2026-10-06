@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cie"
+version = "0.0.1"
+description = "Change Impact Engine: evidence-backed consequences of a library or config change, verified — never a risk score."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = ["griffe>=1.0", "typesafe-sdk"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+explain = ["anthropic"]          # only for --explain-backend anthropic; template and ollama backends need nothing
+
+[project.scripts]
+cie = "cie.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cie"]
