@@ -9,10 +9,11 @@ description = "Finds the exact lines a library, API or config change breaks in o
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
-dependencies = ["griffe>=1.0", "typesafe-sdk"]
+dependencies = ["griffe>=1.0"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
+model = ["typesafe-sdk"]         # model judgement for spans the rules cannot decide; without it they go to review
 explain = ["anthropic"]          # only for --explain-backend anthropic; template and ollama backends need nothing
 
 [project.scripts]

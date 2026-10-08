@@ -10,10 +10,13 @@ import os
 import sys
 from dataclasses import dataclass
 
-from typesafe_sdk import (Choice, Noul, TypeSafeAPIConnectionError, TypeSafeAPITimeoutError, TypeSafeClient,
-                          TypeSafeInternalServerError, TypeSafeRateLimitError)
-
-TRANSIENT = (TypeSafeAPIConnectionError, TypeSafeAPITimeoutError, TypeSafeRateLimitError, TypeSafeInternalServerError)
+try:                       # the model is optional: `pip install "aftershock[model]"`; without it, rules decide alone
+    from typesafe_sdk import (Choice, Noul, TypeSafeAPIConnectionError, TypeSafeAPITimeoutError, TypeSafeClient,
+                              TypeSafeInternalServerError, TypeSafeRateLimitError)
+    TRANSIENT = (TypeSafeAPIConnectionError, TypeSafeAPITimeoutError, TypeSafeRateLimitError, TypeSafeInternalServerError)
+except ImportError:
+    TypeSafeClient = None
+    TRANSIENT = ()
 
 REACH_Q = ("Does `consumer.code` use `change.changed_object` of the library `change.library` as described in "
            "`change.finding` — for a parameter, passing exactly that keyword to that object (also via **kwargs, partial, "
@@ -77,10 +80,12 @@ SKIPPED = Verdict(0.5, "unclear", 0.0, {}, 0)   # budget cap hit: lands in needs
 
 def verify(states: list[dict], client: TypeSafeClient | None = None, budget=None) -> list[Verdict]:
     """One request per state. With a Budget, calls stop at the cap and the rest return SKIPPED."""
-    if client is None and not os.environ.get("TYPESAFE_API_KEY"):
-        # offline: what the rules did not decide goes to a person, exactly as when the budget cap is hit
+    if client is None and (TypeSafeClient is None or not os.environ.get("TYPESAFE_API_KEY")):
+        # rules only: what the rules did not decide goes to a person, exactly as when the budget cap is hit
         if states:
-            print(f"aftershock: TYPESAFE_API_KEY is not set — {len(states)} span(s) the rules could not decide are left for review, "
+            why = ('the model extra is not installed (pip install "aftershock[model]")' if TypeSafeClient is None
+                   else "TYPESAFE_API_KEY is not set")
+            print(f"aftershock: {why} — {len(states)} span(s) the rules could not decide are left for review, "
                   f"none judged by the model", file=sys.stderr)
         return [SKIPPED] * len(states)
     own = client is None

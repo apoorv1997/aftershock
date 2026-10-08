@@ -603,7 +603,8 @@ def test_config_contract_helper_prefix_settings_subclass_and_alias_choices(tmp_p
 def test_verify_without_api_key_leaves_undecided_spans_for_review(monkeypatch, capsys):
     """No key, no model: spans the rules could not decide are SKIPPED (needs_review), never judged and never a crash."""
     from aftershock import verify
-    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    monkeypatch.setattr(verify, "TypeSafeClient", object)        # the [model] extra is installed...
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)        # ...but no key
     out = verify.verify([{"x": 1}, {"x": 2}])
     assert out == [verify.SKIPPED, verify.SKIPPED] and out[0].status == "needs_review"
     assert "TYPESAFE_API_KEY is not set" in capsys.readouterr().err
@@ -920,6 +921,8 @@ def test_keyword_on_an_unrelated_callee_is_ambiguous(tmp_path):
 
 
 def test_verify_survives_a_dropped_connection(capsys):
+    import pytest
+    pytest.importorskip("typesafe_sdk")
     """pandas history run, 2026-10-07: one DNS failure mid-run crashed the benchmark. Transient errors are review items."""
     from aftershock import verify
 
@@ -1038,3 +1041,12 @@ def test_head_scan_binds_judges_calls_against_todays_signature():
     assert hs.binds("self.finalize_request(ctx, rv, nope=1)", fn, n) is False
     assert hs.binds("self.finalize_request(ctx, rv=rv, ctx=ctx)", fn, n) is False                    # given twice
     assert hs.binds("self.finalize_request(*args)", fn, n) is None
+
+
+def test_rules_only_install_without_the_model_extra(monkeypatch, capsys):
+    """`pip install aftershock` without [model]: nothing imports the SDK at load time, and undecided spans go to review."""
+    from aftershock import verify
+    monkeypatch.setattr(verify, "TypeSafeClient", None)
+    monkeypatch.setenv("TYPESAFE_API_KEY", "set-but-unusable")
+    assert verify.verify([{"x": 1}]) == [verify.SKIPPED]
+    assert 'pip install "aftershock[model]"' in capsys.readouterr().err

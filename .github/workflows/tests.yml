@@ -3,9 +3,12 @@ on: [push, pull_request]
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        extras: ["dev", "dev,model"]   # rules-only install, and with the optional model SDK
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install -e . pytest
+      - run: pip install -e ".[${{ matrix.extras }}]"
       - run: python -m pytest -q tests   # rule-level tests only; no network, no TYPESAFE_API_KEY
