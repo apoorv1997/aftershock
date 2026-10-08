@@ -1,128 +1,151 @@
 # aftershock
 
-Evidence-backed consequences of a change, verified. Never a risk score.
+**Find the exact lines a library, API or config change breaks in other code — verified, with `file:line`, never a risk score.**
+
+A signature diff tells you *what* changed. aftershock tells you *which lines elsewhere stop working*: in the same
+repository, in the services that import the library, in the Helm chart that configures it, or in the TypeScript UI that
+calls its routes. Rules decide everything they can; a calibrated model judges only what code cannot decide; anything still
+uncertain goes to a person, never into a verdict.
 
 ```text
-what changed (deterministic diff)  ─►  who might use it (AST candidates)  ─►  rendered evidence
-                                                                                  │
-                            rules decide what rules can; a typed model judges the rest
-                                                                                  │
-                                       Affected  vs  Verified consequence, with file:line
+what changed (griffe API diff)  ─►  who might use it (AST candidates)  ─►  rules decide what rules can
+                                                                                   │
+                                                  a calibrated model judges the rest (optional)
+                                                                                   │
+                                     ❌ breaks · ❓ for a person · ✅ still valid — each with file:line
 ```
 
-Deterministic first. What changed and who *might* use it come from `griffe` and the AST; whole
-classes of change are decided by rules alone (positional moves, newly required parameters,
-parameter-kind changes, removed class members used inside their own class, config keys, named-query
-signatures). A model — TypeSafe's Jev, which returns probabilities rather than prose — is asked only
-the two questions code cannot answer: does this consumer really use the changed API (not a
-look-alike), and does the change break it. Anything uncertain is handed to a person, never hidden,
-and every model call is capped by a spend budget.
-
-## Commands
-
-No TypeSafe key? The test suite, `named-queries`, `config-contract` and `routes` never call a model, and
-`api-impact --no-verify` lists every candidate span without verdicts. Only model verification needs the key.
+## Install
 
 ```bash
-export TYPESAFE_API_KEY=...          # https://console.typesafe.ai/keys  (only api-impact needs it)
-pip install -e .
-
-# library API change -> consequences in a consumer tree
-aftershock api-impact --lib ../httpx --package httpx --old 0.27.2 --new 0.28.0 --consumer ../my-service
-aftershock api-impact ... --github --per-query 60 --max-queries 12      # public consumers via GitHub code search
-aftershock api-impact ... --no-verify                                     # candidates only, no model calls
-aftershock api-impact ... --no-tests --format md --json out.json          # production code only, PR-comment markdown
-
-# named-query registry contract (registry signatures vs consumer payload keys); no model
-aftershock named-queries --lib ../data-service --src app/queries --old <ref> --new <ref> --consumer ../reporting --no-tests
-
-# env keys the code reads (os.getenv and pydantic Settings: env_prefix, aliases, required vs defaulted) vs keys the chart sets; no model
-aftershock config-contract --code ./service --chart ./charts/service/values.yaml ./charts/service/templates
-
-# HTTP routes a Python service exposes (FastAPI decorators + include_router prefixes), old vs new, against URL
-# literals in ANY consumer — a TypeScript UI included; no model. A route that only moved under a mount prefix or
-# to another service still answers: spike/routes_estate.py checks "gone from the whole estate".
-aftershock routes --lib ../gateway --old <ref> --new <ref> --consumer ../web-ui --ext .ts,.tsx
-
-# one pull request, every applicable lens, one comment — driven by an estate manifest (which repositories consume
-# which library, which chart belongs to which service, who calls whose routes); printed by default, --post sends it
-aftershock pr-check --estate ~/.config/aftershock/estate.json --repo my-lib --pr 123 [--post]
+pip install "aftershock @ git+https://github.com/apoorv1997/change-impact-engine"            # rules only
+pip install "aftershock[model] @ git+https://github.com/apoorv1997/change-impact-engine"     # + model judgement
 ```
 
-`--explain` adds prose for the engineer — what changed, which shown lines break and why, the smallest fix —
-over **verified consequences only**. Three backends (`--explain-backend`): `template` (default; deterministic,
-free — the mechanism of every finding kind is known, so no model is needed), `ollama` (a local open model,
-free; picks a pulled model or `--explain-model`), `anthropic` (Claude `claude-opus-5`, paid, needs
-`ANTHROPIC_API_KEY`, `--explain-budget-usd` skips it above the cap). Model backends never see the repository or
-unverified candidates, and four deterministic checks run on their prose: any `file:line` not in the input is
-flagged as invented; any `package.Name(` the new library does not define is flagged as an unverified fix (a local
-7B model proposed `httpx.Proxies(...)`, which does not exist); a verified location the prose omits is appended, so
-summarising never loses a consequence; and a review item named more than once is flagged as mis-attributed (a 14B
-model first listed review items among the consequences).
+Python 3.11+. The rules-only install depends on `griffe` alone; spans the rules cannot decide are listed for review.
+The `model` extra adds TypeSafe's Jev, which returns probabilities rather than prose, for exactly two questions: does this
+consumer really use the changed API (not a look-alike), and does the change break it. It needs `TYPESAFE_API_KEY`
+(https://console.typesafe.ai/keys); every call is capped by a spend budget.
 
-`--budget-usd` caps model spend per run (default $0.02; skipped spans are reported for review, never
-guessed). `AFTERSHOCK_MAX_SPEND_USD` caps all runs (default $1) through a ledger at `~/.cache/aftershock/spend.jsonl`.
+## Quickstart
 
-## What the report means
+```bash
+# a library's API change -> the lines it breaks in a consumer tree
+aftershock api-impact --lib ../httpx --package httpx --old 0.27.2 --new 0.28.0 --consumer ../my-service
+aftershock api-impact ... --github --per-query 60 --max-queries 12      # public consumers via GitHub code search
+aftershock api-impact ... --no-tests --format md --json out.json        # production code only, PR-comment markdown
 
-| section | meaning |
+# env keys the code reads (os.getenv, pydantic settings with env_prefix / aliases / helper-built prefixes) vs keys a chart sets
+aftershock config-contract --code ./service --chart ./charts/service/values.yaml ./charts/service/templates
+
+# HTTP routes a Python service exposes (FastAPI decorators + include_router prefixes, across files and repositories),
+# old vs new, against URL literals in any consumer — a TypeScript UI included
+aftershock routes --lib ../api --old <ref> --new <ref> --consumer ../web-ui --ext .ts,.tsx
+
+# a named-query registry (function signatures served over HTTP) vs the payload keys its consumers send
+aftershock named-queries --lib ../data-service --src app/queries --old <ref> --new <ref> --consumer ../reporting --no-tests
+
+# one pull request, every applicable lens, one comment, driven by a manifest of which repositories consume which
+# library and which chart configures which service; printed by default, --post sends it, --only-breaks posts only on ❌
+aftershock pr-check --estate ~/.config/aftershock/estate.json --repo my-lib --pr 123
+```
+
+Spend caps: `--budget-usd` per run (default $0.02; skipped spans are reported for review, never guessed) and
+`AFTERSHOCK_MAX_SPEND_USD` across runs (default $1), tracked in `~/.cache/aftershock/spend.jsonl`.
+
+## What a report means
+
+| mark | meaning |
 |---|---|
-| Verified consequence | the consumer uses the changed API and the change breaks it — with `file:line` and the finding |
-| Needs human confirmation | evidence exists but reach or break confidence sits in the review band, or the budget cap stopped the call |
-| Verified compatible | reached, but the use is still valid after the change |
-| Not actually reached | a look-alike: same name or keyword on a different object or library |
+| ❌ verified consequence | the code uses the changed API and the change breaks it — `file:line` and the finding |
+| ❓ for a person | evidence exists but the receiver's type or the intent is unclear, or a cap stopped the call |
+| ✅ still valid | the use was checked and still works after the change |
+| not reached | a look-alike: the same name on a different object or library |
 
-Production code is listed before test code in every section; `--no-tests` drops tests entirely.
-Default-value changes are reported once, in aggregate, never per call.
+Production code is listed before tests; `--no-tests` drops tests. A new or changed settings default is reported as an
+advisory ⚠️ row with the charts that set the key — no signature changes, so only a person can judge it.
 
-## Evidence behind the design (2026-09)
+## Proposed fixes, and whether they hold up
 
-- Existing tools already detect public-API breaks: griffe found 37/38 real changes in httpx 0.28 and
-  43/46 in click 8.2. aftershock wraps it rather than re-implementing it.
-- Token reach lies: httpx's `app=` on `ASGITransport` looks identical to the removed `Client(app=)`.
-  On 50 labelled cases (36 real + 14 adversarial: kwargs dicts, `partial`, wrappers, subclasses,
-  aliases) the reach claim scored 50/50, unchanged under 2.7× irrelevant padding and negated phrasing;
-  the break claim scored 23/23 on click 8.2 cases.
-- Calibration on 48 rule-labelled spans (`spike/CALIBRATION.md`): with the call statement in the
-  evidence the reach answer is bimodal and 48/48 at 0.5; with a single evidence line each tail picks
-  up ~1 error in 40. Re-calibrated on 92 spans (these 48 plus 44 from an unpublished repository-history
-  benchmark): thresholds reach ≥0.7 / ≤0.4, break confidence ≥0.8.
-- A planted misleading comment never flipped a verdict but halved the high-confidence ones, so
-  comments are stripped from evidence by default.
-- Cross-repo (GitHub code search, first 100 hits per query): 30 hand-checked hits, 18/19 real on true
-  consumers; the misses were vendored copies of the library and a same-library look-alike, both now
-  excluded deterministically.
+`aftershock.fix` proposes a fix for each broken file, most certain first: pass moved or keyword-only arguments by name
+(behaviour-identical by construction); import a removed object from the one module that now defines it (exact only if its
+definition is unchanged); or apply the edit the change itself made to its other callers. `aftershock.fixcheck` then climbs
+a ladder and reports the highest rung the fix reaches:
 
-Known limits: receivers of unknown type (`x.method(...)`) are matched by method name and land in
-review — and when the consumer defines a same-named member on one of its own classes, a model "breaks"
-verdict on such a receiver is capped to review (the deciding fact, the receiver's type, is not in the
-evidence). A branch whose copy of a library is behind the trunk is API-compatible yet behaviourally
-stale — reported as a commits-behind note, since a signature diff cannot see fixes.
+| rung | passes when |
+|---|---|
+| parses | the patched file is valid Python |
+| resolves | every library module and name it uses exists at the new version — and, for a file of the library's own repository, nothing it imports is a dependency the change dropped |
+| clears | re-running the rules on the patched file finds no break of the change, and no new one |
+| runs | the patched module imports against the new library |
+
+A fix that deletes an argument, a call or a line is flagged as a **behaviour change** whatever it passes, and a fix that makes
+code outside the library import one of its `_private` names is flagged too. "Runs" means it imports, not that it does what
+the author intended. (Python API today; not yet a CLI command.)
+
+## Evidence (public repositories, reproducible)
+
+Measured 2026-10 on full clones; method and every number in [`spike/CALIBRATION.md`](spike/CALIBRATION.md).
+
+**Precision on each library's own history** — for every commit that changed a public API, does aftershock flag exactly the
+lines that commit had to change?
+
+| library | verified true / verified | recall |
+|---|---|---|
+| click | 109 / 109 | 88% |
+| pydantic | 10 / 10 | 88% |
+| pandas | 11 / 11 | 100% |
+| huggingface_hub | 41 / 41 | 89% |
+| Prefect | 181 / 182 — the one is a real escape: a script imported a module a refactor removed, fixed 145 days later | — |
+| werkzeug | 364 / 373 | 87% |
+| flask | 124 / 128 | 81% |
+
+**Live pull requests.** Every open, non-draft PR updated in the last 30 days that touches Python, at its latest commit,
+across Prefect, fastapi, pydantic, pydantic-settings, huggingface_hub, click and flask: 106 PRs, nothing posted. No verified
+break. The one false flag (fastapi #16236 removes `APIRouter.app` because Starlette's `Router`, an external base class,
+provides it) became a rule, as did every false positive found on the way.
+
+**Fixes.** Hiding one file's edits from its commit and asking for a fix: on click, 11 of 13 files got a fix that holds up to
+*runs*. Few match the author's edit exactly — most are working alternatives — and every rejection inspected was right
+(for example, an import fix for a script that also used a dependency the change had removed).
+
+**Model calibration** on httpx 0.28 and click 8.2: with the whole call statement as evidence the reach answer is bimodal
+(48/48 at 0.5, 50/50 on 14 adversarial cases — kwargs dicts, `partial`, wrappers, subclasses, aliases); a planted misleading
+comment never flipped a verdict, so comments are stripped from evidence. Thresholds: reach ≥ 0.7 / < 0.4, break ≥ 0.8.
+
+Reproduce: `spike/history_bench.py <repo> <package> --search src --since <date>`, `spike/pr_sweep.py --estate <manifest>`,
+`spike/fix_bench.py <repo> <package> --rows <history rows>`, `spike/head_scan.py <repo> <package>`.
+
+## Known limits
+
+- **Python only.** The routes lens reads consumers in any language; the API lens reads Python.
+- **Behaviour changes are invisible by design.** A new default, a changed return value or a slower query changes no
+  signature; settings defaults get an advisory row, nothing more.
+- **Unknown receivers** (`x.method(...)`) are matched by method name; when the consumer defines a same-named member itself,
+  a "breaks" answer is capped to review. On very large PRs the review list can be long.
+- **Members provided by an external base class** cannot be checked (its source is not in the repository), so their removal
+  is never verified — it goes to review.
+- A branch whose copy of a library is behind the trunk is API-compatible yet behaviourally stale; it is reported as a
+  commits-behind note.
 
 ## Layout
 
 ```text
-aftershock/contracts.py       griffe wrapper, Finding (module-qualified), package re-export map
-aftershock/reach.py           AST candidates: keyword/object/member matching, import + re-export resolver, receivers, aliases
-aftershock/positional.py      rules: positional moves, newly required params, parameter kind changes
-aftershock/evidence.py        JSON state for a claim; comments stripped
-aftershock/verify.py          Jev claims (reach Noul, break Choice) + calibrated thresholds
-aftershock/budget.py          per-run and cumulative spend caps, ledger
-aftershock/github_reach.py    public consumers via GitHub code search (10 searches/min)
-aftershock/named_queries.py   registry-signature HTTP contract vs consumer payload keys
-aftershock/config_contract.py env keys read (os.getenv, pydantic Settings with env_prefix/aliases, required-vs-default) vs set by a chart
-aftershock/routes.py          HTTP route contract: decorator paths + include_router prefixes, old vs new, vs URL literals in any language
-aftershock/rules.py           the one deterministic router (CLI and benchmarks share it)
-aftershock/prcheck.py         pr-check: manifest-driven, in-repo callers + cross-repo consumers + pins + queries + routes + chart, one comment
-aftershock/explain.py         prose over verified consequences only (template / ollama / anthropic) + 4 prose checks
-spike/history_bench.py repository-history benchmark: truth = the commit's own diff (callers the author updated)
-spike/pr_pairs.py      (breaker PR, fixer PR) miner: a later PR cites or rewrites what an earlier one wrote
-spike/pr_pair_score.py aftershock at the breaker's parent; verified lines split into updated-by-breaker vs predicted escapes
-spike/confirm_escapes.py follows each predicted escape forward: the commit that rewrote it (strong / weak) or "still present"
-spike/rank.py          per-repository scorecard from both benchmarks; bulk rewrites (>3000 lines) reported apart
-spike/routes_estate.py, spike/route_history.py  route contract across a repository boundary, live and through history
-spike/                 the spike, calibration harness and record
-tests/                 rule-level tests, no network
+aftershock/contracts.py        griffe wrapper, Finding, re-export map, library module list, name bindings
+aftershock/reach.py            AST candidates: imports and re-exports, receivers, aliases, scopes, ambiguity
+aftershock/rules.py            the one deterministic router (CLI and benchmarks share it); inheritance and still-bound checks
+aftershock/positional.py       signature rules: moved, newly required, kind-changed, removed-and-passed-positionally
+aftershock/verify.py           optional model claims (reach, break) with calibrated thresholds; review on any failure
+aftershock/fix.py              proposed fixes: keyword rewrite, moved import, analogy from the change's own edits
+aftershock/fixcheck.py         the hold-up ladder: parses, resolves, clears, runs
+aftershock/config_contract.py  env keys read (os.getenv, pydantic settings) vs set by a chart
+aftershock/routes.py           HTTP route contract across files, repositories and languages
+aftershock/named_queries.py    named-query registry signatures vs consumer payload keys
+aftershock/prcheck.py          pr-check: one PR, every applicable lens, one comment
+aftershock/explain.py          prose over verified consequences only (template / ollama / anthropic), with checks on the prose
+aftershock/budget.py           per-run and cumulative spend caps
+spike/                         benchmarks (history, PR pairs, fixes, still-broken-at-HEAD, PR sweep) and the calibration record
+tests/                         rule-level tests, no network
 ```
 
-License: MIT (see `LICENSE`).
+License: MIT (see [`LICENSE`](LICENSE)).
