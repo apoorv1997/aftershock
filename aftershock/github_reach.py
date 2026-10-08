@@ -15,7 +15,7 @@ import time
 
 from .contracts import Finding
 
-CACHE = pathlib.Path.home() / ".cache" / "cie" / "github"
+CACHE = pathlib.Path.home() / ".cache" / "aftershock" / "github"
 SEARCH_INTERVAL_S = 6.5          # 10 searches/minute, with margin
 
 

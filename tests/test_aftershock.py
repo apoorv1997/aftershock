@@ -2,7 +2,7 @@
 import pathlib
 import textwrap
 
-from cie import config_contract, contracts, evidence, reach
+from aftershock import config_contract, contracts, evidence, reach
 
 ONELINE = """\
 httpx/__version__.py:3: __version__: Attribute value was changed: '0.27.2' -> '0.28.0'
@@ -64,7 +64,7 @@ def test_resolve_separates_reexport_from_removed_module_object():
 
 
 def test_added_required_override_needs_matching_class():
-    from cie import positional
+    from aftershock import positional
     f = contracts.parse_oneline("src/click/core.py:748: Context.invoke(callback): Parameter was added as required")[0]
     code = "def invoke(self, ctx):\n    ctx.invoke(self.callback, ctx.args, **ctx.params)"
     assert positional.added_required_breaks(code, f, receiver="click.Command") == "not_reached"
@@ -74,7 +74,7 @@ def test_added_required_override_needs_matching_class():
 
 
 def test_budget_stops_calls_at_cap(tmp_path, monkeypatch):
-    from cie import budget
+    from aftershock import budget
     monkeypatch.setattr(budget, "LEDGER", tmp_path / "spend.jsonl")
     b = budget.Budget(run_usd=0.0001, total_usd=10)          # ~2 calls of 800 tokens
     allowed = []
@@ -104,7 +104,7 @@ def test_vendored_copy_and_same_library_lookalike_are_not_candidates(tmp_path: p
 
 
 def test_kind_changed_to_positional_only_breaks_keyword_callers():
-    from cie import positional
+    from aftershock import positional
     f = contracts.parse_oneline("python/log-kit/src/logkit/tracing.py:106: start_span(name): "
                                 "Parameter kind was changed: positional or keyword -> positional-only")[0]
     assert positional.kind_changed_breaks('with start_span(name="build"):\n    pass', f) is True
@@ -144,7 +144,7 @@ def test_removed_member_matches_self_inside_class_and_unknown_receivers(tmp_path
 
 
 def test_named_query_contract_rules(tmp_path: pathlib.Path):
-    from cie import named_queries as nq
+    from aftershock import named_queries as nq
     old = {"q_orders": nq.QuerySig("q_orders", ("ids_in",), ("limit",)), "q_gone": nq.QuerySig("q_gone", (), ())}
     new = {"q_orders": nq.QuerySig("q_orders", ("ids_in", "region"), ())}
     kinds = sorted((c.name, c.kind) for c in nq.diff(old, new))
@@ -160,7 +160,7 @@ def test_named_query_contract_rules(tmp_path: pathlib.Path):
 
 
 def test_named_queries_absent_registry_is_not_a_total_removal(capsys):
-    from cie import cli
+    from aftershock import cli
     import types
     a = types.SimpleNamespace(lib=".", old="x", new="y", src="nope", consumer=".", no_tests=True)
     cli.named_queries = types.SimpleNamespace(registry=lambda lib, ref, src: {"q": None} if ref == "x" else {},
@@ -170,7 +170,7 @@ def test_named_queries_absent_registry_is_not_a_total_removal(capsys):
 
 
 def test_wrapper_injected_keys_count_as_sent(tmp_path: pathlib.Path):
-    from cie import named_queries as nq
+    from aftershock import named_queries as nq
     (tmp_path / "_base.py").write_text(textwrap.dedent("""
         async def _named_query(self, query_name, params):
             clean = {k: v for k, v in params.items() if v is not None}
@@ -190,7 +190,7 @@ def test_wrapper_injected_keys_count_as_sent(tmp_path: pathlib.Path):
 
 
 def test_explanation_input_and_hallucination_check():
-    from cie import explain
+    from aftershock import explain
     kept = [{"file": "a.py", "line": 3, "finding": "x.f(p): Parameter was removed", "how": "rule", "code": "f(p=1)"}]
     review = [{"file": "b.py", "line": 9, "finding": "x.g: Public object was removed", "reason": "band"}]
     inp = explain.build_input({"library": "x"}, kept, review)
@@ -201,14 +201,14 @@ def test_explanation_input_and_hallucination_check():
 
 
 def test_explanation_skips_when_input_alone_exceeds_cap():
-    from cie import explain
+    from aftershock import explain
     big = [{"file": "a.py", "line": i, "finding": "f", "how": "rule", "code": "x" * 1200} for i in range(200)]
     ex = explain.explain({"library": "x"}, big, [], max_usd=0.0001, client=object(), backend="anthropic")   # cap trips before any network
     assert "skipped" in ex.text and ex.usd == 0.0
 
 
 def test_template_explanation_names_mechanism_and_locations():
-    from cie import explain
+    from aftershock import explain
     kept = [{"file": "svc/a.py", "line": 3, "finding": "httpx._client.Client.__init__(proxies): Parameter was removed",
              "how": "calibrated check", "code": "client = httpx.Client(proxies=p)"},
             {"file": "svc/b.py", "line": 8, "finding": "click.parser.OptionParser: Public object was removed",
@@ -220,14 +220,14 @@ def test_template_explanation_names_mechanism_and_locations():
 
 
 def test_invented_api_check_flags_names_the_new_library_lacks():
-    from cie import explain
+    from aftershock import explain
     names = {"Client", "AsyncClient", "Proxy", "HTTPTransport"}
     text = "Replace `httpx.Client(proxies=p)` with `httpx.Client(proxy=p)`; or use `httpx.Proxies(...)` / `httpx.Proxy(...)`."
     assert explain.unknown_apis(text, "httpx", names) == ["httpx.Proxies"]
 
 
 def test_flag_appends_omitted_verified_locations_and_overused_review_items():
-    from cie import explain
+    from aftershock import explain
     text = "`a.py:1` breaks. `r.py:9` also breaks badly.\n\nFor a human:\n- `r.py:9` check it"
     out, bad, apis = explain._flag(text, {"a.py:1", "b.py:2", "r.py:9"}, {"library": "x"},
                                    kept_locs={"a.py:1", "b.py:2"}, review_locs={"r.py:9"})
@@ -235,8 +235,8 @@ def test_flag_appends_omitted_verified_locations_and_overused_review_items():
 
 
 def test_member_receiver_imported_from_another_package_is_not_a_candidate(tmp_path):
-    from cie import reach
-    from cie.contracts import Finding
+    from aftershock import reach
+    from aftershock.contracts import Finding
     f = Finding(path="services/web-api/src/web_api/config.py", line=1, symbol="ApiSettings.packaging_url",
                 message="Public object was removed")
     (tmp_path / "own.py").write_text("from web_engine.config import settings\nurl = settings.packaging_url\n")
@@ -247,8 +247,8 @@ def test_member_receiver_imported_from_another_package_is_not_a_candidate(tmp_pa
 
 
 def test_module_level_function_through_a_local_receiver_is_not_a_candidate(tmp_path):
-    from cie import reach
-    from cie.contracts import Finding
+    from aftershock import reach
+    from aftershock.contracts import Finding
     f = Finding(path="services/auth-svc/src/auth_svc/routes/admin.py", line=0, symbol="create_user(plans)",
                 message="Parameter was added as required")
     (tmp_path / "local.py").write_text("async def route(admin):\n    return await admin.create_user(name='x')\n")
@@ -261,8 +261,8 @@ def test_module_level_function_through_a_local_receiver_is_not_a_candidate(tmp_p
 
 
 def test_relative_imports_resolve_against_the_file_module(tmp_path):
-    from cie import reach
-    from cie.contracts import Finding
+    from aftershock import reach
+    from aftershock.contracts import Finding
     f = Finding(path="libs/core/src/pkg/providers/metrics.py", line=0, symbol="DAILY_METRICS", message="Public object was removed")
     d = tmp_path / "libs/core/src/pkg/providers"; d.mkdir(parents=True)
     (d / "handlers.py").write_text("from .metrics import DAILY_METRICS\nx = DAILY_METRICS\n")           # the removed object itself
@@ -274,8 +274,8 @@ def test_relative_imports_resolve_against_the_file_module(tmp_path):
 
 
 def test_keyword_findings_skip_foreign_callees_local_classes_and_non_wrappers(tmp_path):
-    from cie import reach
-    from cie.contracts import Finding
+    from aftershock import reach
+    from aftershock.contracts import Finding
     f = Finding(path="src/pkg/routers/orders.py", line=0, symbol="list_orders(region)", message="Parameter was removed")
     (tmp_path / "stub.py").write_text("async def go(client):\n    return await client.list_orders(date=d, region=m)\n")
     (tmp_path / "foreign.py").write_text("from other.protos import api_pb2 as api_pb\nreq = api_pb.ListOrdersRequest(region=m)\n")
@@ -290,8 +290,8 @@ def test_keyword_findings_skip_foreign_callees_local_classes_and_non_wrappers(tm
 
 
 def test_ambiguous_member_reference_is_capped_to_review(tmp_path):
-    from cie import reach, verify
-    from cie.contracts import Finding
+    from aftershock import reach, verify
+    from aftershock.contracts import Finding
     f = Finding(path="libs/r/src/pkg/schema.py", line=0, symbol="FieldSpec.description", message="Public object was removed")
     (tmp_path / "own.py").write_text("class _Doc:\n    description: str = ''\n\ndef f(doc):\n    return doc.description\n")
     (tmp_path / "lib.py").write_text("from pkg.schema import FieldSpec\nspec = FieldSpec()\nprint(spec.description)\n")
@@ -304,8 +304,8 @@ def test_ambiguous_member_reference_is_capped_to_review(tmp_path):
 
 def test_removed_parameter_passed_positionally_is_a_candidate_and_decided_by_rule(tmp_path):
     import subprocess
-    from cie import reach, positional
-    from cie.contracts import Finding
+    from aftershock import reach, positional
+    from aftershock.contracts import Finding
     lib = tmp_path / "lib"; (lib / "src/pkg").mkdir(parents=True)
     subprocess.run(["git", "init", "-q", str(lib)], check=True)
     (lib / "src/pkg/kb.py").write_text("def load(mode='basic', legacy_mode=None):\n    return mode\n")
@@ -325,8 +325,8 @@ def test_removed_parameter_passed_positionally_is_a_candidate_and_decided_by_rul
 
 
 def test_same_file_constant_is_not_the_removed_library_object(tmp_path):
-    from cie import reach
-    from cie.contracts import Finding
+    from aftershock import reach
+    from aftershock.contracts import Finding
     f = Finding(path="src/web_api/utils/middleware.py", line=0, symbol="REQUEST_ID_HEADER", message="Public object was removed")
     (tmp_path / "own.py").write_text('REQUEST_ID_HEADER = "X-Request-ID"\nv = headers.get(REQUEST_ID_HEADER)\n')
     (tmp_path / "theirs.py").write_text("from web_api.utils.middleware import REQUEST_ID_HEADER\nv = headers.get(REQUEST_ID_HEADER)\n")
@@ -335,16 +335,16 @@ def test_same_file_constant_is_not_the_removed_library_object(tmp_path):
 
 
 def test_module_of_a_top_level_file_survives_the_prefix_strip():
-    from cie import reach
-    from cie.contracts import Finding
+    from aftershock import reach
+    from aftershock.contracts import Finding
     assert Finding(path="job-runner/main.py", line=0, symbol="run", message="Public object was removed").module == "main"
     assert Finding(path="python/log-kit/src/logkit/tracing.py", line=0, symbol="x", message="m").module == "logkit.tracing"
     assert reach.module_of("job-runner/main.py") == "main" and reach.module_of("pkg/__init__.py") == "pkg"
 
 
 def test_function_scope_binding_shadows_a_removed_module_object(tmp_path):
-    from cie import reach
-    from cie.contracts import Finding
+    from aftershock import reach
+    from aftershock.contracts import Finding
     f = Finding(path="utils/run_init.py", line=0, symbol="client", message="Public object was removed")
     (tmp_path / "local.py").write_text("import httpx\nasync def go():\n    async with httpx.AsyncClient() as client:\n        return await client.send(r)\n")
     (tmp_path / "param.py").write_text("def go(client):\n    return client.send(r)\n")
@@ -355,8 +355,8 @@ def test_function_scope_binding_shadows_a_removed_module_object(tmp_path):
 
 
 def test_keyword_on_a_tree_method_that_never_calls_the_library_is_skipped(tmp_path):
-    from cie import reach
-    from cie.contracts import Finding
+    from aftershock import reach
+    from aftershock.contracts import Finding
     f = Finding(path="src/gw/routers/orders.py", line=0, symbol="list_orders(limit)", message="Parameter was removed")
     (tmp_path / "base.py").write_text("class Base:\n    async def _neighbors(self, account_id, *, limit):\n        return await self.q(account_id, limit)\n")
     (tmp_path / "use.py").write_text("class A(Base):\n    async def go(self):\n        return await self._neighbors(u, limit=15)\n")
@@ -366,8 +366,8 @@ def test_keyword_on_a_tree_method_that_never_calls_the_library_is_skipped(tmp_pa
 
 
 def test_definition_is_not_a_use_and_a_resolved_removed_reference_is_decided_by_rule(tmp_path):
-    from cie import reach, rules
-    from cie.contracts import Finding
+    from aftershock import reach, rules
+    from aftershock.contracts import Finding
     f = Finding(path="src/pkg/conf.py", line=0, symbol="HOST", message="Public object was removed")
     (tmp_path / "src/pkg").mkdir(parents=True)
     (tmp_path / "src/pkg/conf.py").write_text('HOST = "x"\nURL = HOST + "/api"\n')            # line 1 defines, line 2 uses
@@ -381,8 +381,8 @@ def test_definition_is_not_a_use_and_a_resolved_removed_reference_is_decided_by_
 
 
 def test_module_import_style_reference_counts_as_resolved(tmp_path):
-    from cie import reach
-    from cie.contracts import Finding
+    from aftershock import reach
+    from aftershock.contracts import Finding
     f = Finding(path="httpx/_client.py", line=0, symbol="Client.__init__(app)", message="Parameter was removed")
     (tmp_path / "a.py").write_text("import httpx\nc = httpx.Client(app=x)\n")
     (tmp_path / "b.py").write_text("c = Client(app=x)\n")
@@ -391,8 +391,8 @@ def test_module_import_style_reference_counts_as_resolved(tmp_path):
 
 
 def test_module_scope_binding_inside_try_counts_as_the_files_own(tmp_path):
-    from cie import reach
-    from cie.contracts import Finding
+    from aftershock import reach
+    from aftershock.contracts import Finding
     f = Finding(path="src/pkg/log.py", line=0, symbol="logger", message="Public object was removed")
     (tmp_path / "own.py").write_text("import logging\ntry:\n    logger = logging.getLogger('x')\nexcept Exception:\n    logger = None\nlogger.info('hi')\n")
     (tmp_path / "theirs.py").write_text("from pkg.log import logger\nlogger.info('hi')\n")
@@ -400,8 +400,8 @@ def test_module_scope_binding_inside_try_counts_as_the_files_own(tmp_path):
 
 
 def test_tuple_unpacking_and_loop_targets_shadow_a_removed_name(tmp_path):
-    from cie import reach
-    from cie.contracts import Finding
+    from aftershock import reach
+    from aftershock.contracts import Finding
     fs = [Finding(path="tool.py", line=0, symbol=n, message="Public object was removed") for n in ("node_map", "res2", "block_statements")]
     (tmp_path / "a.py").write_text("def f(items):\n    for node, (_, node_map) in items:\n        print(node_map)\n")
     (tmp_path / "b.py").write_text("res1, res2, res3 = 0, 0, 0\nprint(res2)\n")
@@ -411,8 +411,8 @@ def test_tuple_unpacking_and_loop_targets_shadow_a_removed_name(tmp_path):
 
 
 def test_importing_a_removed_module_is_a_consequence_decided_by_rule(tmp_path):
-    from cie import reach, rules
-    from cie.contracts import Finding
+    from aftershock import reach, rules
+    from aftershock.contracts import Finding
     f = Finding(path="libs/t/src/pkg/providers/db_common.py", line=0, symbol="<module>", message="Public object was removed")
     (tmp_path / "libs/t/src/pkg/providers").mkdir(parents=True)
     (tmp_path / "libs/t/src/pkg/providers/handlers.py").write_text("from .db_common import TS_FIELD\nfrom . import db_common\nfrom .other import X\n")
@@ -424,7 +424,7 @@ def test_importing_a_removed_module_is_a_consequence_decided_by_rule(tmp_path):
 
 def test_route_contract_finds_removed_paths_in_a_typescript_consumer(tmp_path):
     import subprocess
-    from cie import routes
+    from aftershock import routes
     lib = tmp_path / "lib"; (lib / "svc/routers").mkdir(parents=True)
     subprocess.run(["git", "init", "-q", str(lib)], check=True)
     (lib / "svc/routers/orders.py").write_text('from fastapi import APIRouter\nrouter = APIRouter(prefix="/v1")\n@router.get("/items/{item_id}")\nasync def site(item_id: str): ...\n@router.post("/sites")\nasync def create(): ...\n')
@@ -441,7 +441,7 @@ def test_route_contract_finds_removed_paths_in_a_typescript_consumer(tmp_path):
 
 
 def test_settings_keys_follow_env_prefix_and_aliases():
-    from cie.config_contract import settings_keys
+    from aftershock.config_contract import settings_keys
     src = ("from pydantic_settings import BaseSettings, SettingsConfigDict\nfrom pydantic import Field\n"
            "class S(BaseSettings):\n    model_config = SettingsConfigDict(env_prefix='APP_GW_')\n"
            "    auth_url: str = 'x'\n    redis_url: str = Field(default='r', alias='APP_REDIS_URL')\n    _private: int = 0\n"
@@ -451,8 +451,8 @@ def test_settings_keys_follow_env_prefix_and_aliases():
 
 def test_added_required_on_init_matches_the_class_call(tmp_path):
     import subprocess
-    from cie import positional
-    from cie.contracts import Finding
+    from aftershock import positional
+    from aftershock.contracts import Finding
     lib = tmp_path / "lib"; (lib / "src/pkg").mkdir(parents=True)
     subprocess.run(["git", "init", "-q", str(lib)], check=True)
     (lib / "src/pkg/cap.py").write_text("class Cap:\n    def __init__(self, assistant_text):\n        pass\n")
@@ -465,7 +465,7 @@ def test_added_required_on_init_matches_the_class_call(tmp_path):
 
 def test_route_paths_include_router_prefixes_from_other_files(tmp_path):
     import subprocess
-    from cie import routes
+    from aftershock import routes
     lib = tmp_path / "lib"; (lib / "src/svc/routes").mkdir(parents=True)
     (lib / "src/svc/routes/__init__.py").write_text("")
     (lib / "src/svc/routes/audit.py").write_text('from fastapi import APIRouter\nrouter = APIRouter()\n@router.get("/static/latest")\ndef latest(): ...\n')
@@ -478,7 +478,7 @@ def test_route_paths_include_router_prefixes_from_other_files(tmp_path):
 
 def test_estate_routes_resolve_a_mount_across_repositories(tmp_path):
     import subprocess
-    from cie import routes
+    from aftershock import routes
     def repo(name, files):
         r = tmp_path / name
         for f, body in files.items():
@@ -496,7 +496,7 @@ def test_estate_routes_resolve_a_mount_across_repositories(tmp_path):
 
 
 def test_consumer_flags_a_map_entry_nothing_references(tmp_path):
-    from cie import routes
+    from aftershock import routes
     ui = tmp_path / "ui/src"; ui.mkdir(parents=True)
     (ui / "api.ts").write_text('export const E = {\n  signIn: "/auth/login",\n  items: "/v1/items",\n};\n')
     (ui / "use.ts").write_text('import { E } from "./api";\nfetch(E.items);\n')
@@ -505,16 +505,16 @@ def test_consumer_flags_a_map_entry_nothing_references(tmp_path):
 
 
 def test_a_function_named_inside_depends_is_not_a_consumer_call(tmp_path):
-    from cie import reach
-    from cie.contracts import Finding
+    from aftershock import reach
+    from aftershock.contracts import Finding
     f = Finding(path="src/svc/deps.py", line=0, symbol="get_service(lockout)", message="Parameter was added as required")
     (tmp_path / "a.py").write_text("from fastapi import Depends\nfrom svc.deps import get_service\ndef route(s=Depends(get_service)):\n    return s\nx = get_service()\n")
     assert [s.line for s in reach.candidates(tmp_path, [f])] == [5]
 
 
 def test_the_import_line_of_a_removed_object_is_a_consequence(tmp_path):
-    from cie import reach, rules
-    from cie.contracts import Finding
+    from aftershock import reach, rules
+    from aftershock.contracts import Finding
     f = Finding(path="src/pkg/prompts/ctx.py", line=0, symbol="build_ctx", message="Public object was removed")
     (tmp_path / "src/pkg/agent").mkdir(parents=True)
     (tmp_path / "src/pkg/agent/a.py").write_text("from ..prompts.ctx import build_ctx\nx = build_ctx()\n")
@@ -524,8 +524,8 @@ def test_the_import_line_of_a_removed_object_is_a_consequence(tmp_path):
 
 
 def test_member_on_another_imported_class_of_the_same_package_is_not_a_candidate(tmp_path):
-    from cie import reach
-    from cie.contracts import Finding
+    from aftershock import reach
+    from aftershock.contracts import Finding
     f = Finding(path="src/svc/services/billing_client.py", line=0, symbol="Account.quota", message="Public object was removed")
     (tmp_path / "src/svc/repositories").mkdir(parents=True)
     (tmp_path / "src/svc/repositories/plan.py").write_text("from ..models import Plan\nfrom ..services.billing_client import Account\ncols = (Plan.quota,)\nx = Account.quota\n")
@@ -533,7 +533,7 @@ def test_member_on_another_imported_class_of_the_same_package_is_not_a_candidate
 
 
 def test_settings_defaults_reads_new_keys_and_changed_defaults():
-    from cie.config_contract import settings_defaults
+    from aftershock.config_contract import settings_defaults
     old = "from pydantic_settings import BaseSettings, SettingsConfigDict\nfrom pydantic import Field\nclass S(BaseSettings):\n    model_config = SettingsConfigDict(env_prefix='AR_ADAPTER_')\n    db_connect_timeout_sec: int = Field(default=30)\n"
     new = old + "    db_query_timeout_sec: int = Field(default=900, description='x')\n    db_connect_timeout_sec: int = Field(default=45)\n"
     od, nd = settings_defaults(old), settings_defaults(new)
@@ -542,16 +542,16 @@ def test_settings_defaults_reads_new_keys_and_changed_defaults():
 
 
 def _fake_cie(tmp_path, body: str) -> str:
-    p = tmp_path / "fake-cie"
+    p = tmp_path / "fake-aftershock"
     p.write_text("#!/usr/bin/env python3\nimport sys, json\nout = sys.argv[sys.argv.index('--json') + 1]\n" + body)
     p.chmod(0o755)
     return str(p)
 
 
 def test_pr_check_api_impact_crash_is_not_a_clean_result(tmp_path):
-    """A crashed `cie api-impact` leaves no JSON; it used to render as '✅ no caller affected'."""
+    """A crashed `aftershock api-impact` leaves no JSON; it used to render as '✅ no caller affected'."""
     import pytest
-    from cie import prcheck
+    from aftershock import prcheck
     crash = _fake_cie(tmp_path, "sys.stderr.write('Traceback...\\nValueError: boom\\n'); sys.exit(1)\n")
     with pytest.raises(prcheck.CheckFailed, match="exited 1: ValueError: boom"):
         prcheck.api_impact(crash, "lib", "pkg", "src", "a", "b", str(tmp_path), 0.02)
@@ -564,7 +564,7 @@ def test_pr_check_api_impact_crash_is_not_a_clean_result(tmp_path):
 
 
 def test_pr_check_api_impact_success_still_parses(tmp_path):
-    from cie import prcheck
+    from aftershock import prcheck
     ok = _fake_cie(tmp_path, "print('Contract diff pkg a -> b: 3 findings'); json.dump([{'status': 'compatible'}], open(out, 'w'))\n")
     findings, rows, _ = prcheck.api_impact(ok, "lib", "pkg", "src", "a", "b", str(tmp_path), 0.02)
     assert findings == 3 and rows == [{"status": "compatible"}]
@@ -602,7 +602,7 @@ def test_config_contract_helper_prefix_settings_subclass_and_alias_choices(tmp_p
 
 def test_verify_without_api_key_leaves_undecided_spans_for_review(monkeypatch, capsys):
     """No key, no model: spans the rules could not decide are SKIPPED (needs_review), never judged and never a crash."""
-    from cie import verify
+    from aftershock import verify
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
     out = verify.verify([{"x": 1}, {"x": 2}])
     assert out == [verify.SKIPPED, verify.SKIPPED] and out[0].status == "needs_review"
@@ -630,7 +630,7 @@ def test_removed_member_in_its_own_module_is_not_a_break_by_name(tmp_path):
 
 
 def test_member_through_ambiguous_receiver_is_never_decided_by_rule():
-    from cie import rules
+    from aftershock import rules
     f = contracts.Finding("pkg/m.py", 1, "Field.to_argument(typed)", "Parameter was added as required")
     s = _span(f, "field.to_argument(info)", receiver="field", ambiguous=True)
     assert rules.decide(s, "/nonexistent", "a", "b") is None
@@ -646,7 +646,7 @@ def test_removed_name_still_bound_in_new_module_is_review_not_break(tmp_path):
     (tmp_path / "pkg" / "gone.py").write_text("x = 1\n")
     (tmp_path / "pkg" / "__init__.py").write_text("__all__ = ('Lazy',)\n_dynamic_imports = {'Lazy': (__spec__.parent, '.net')}\n")
     run("add", "."); run("commit", "-q", "-m", "c")
-    from cie import rules
+    from aftershock import rules
     still = contracts.Finding("pkg/net.py", 1, "IPv", "Public object was removed")
     real = contracts.Finding("pkg/net.py", 1, "Missing", "Public object was removed")
     lazy = contracts.Finding("pkg/__init__.py", 1, "Lazy", "Public object was removed")
@@ -714,7 +714,7 @@ def test_removed_member_through_a_library_variable_is_not_decided_by_rule(tmp_pa
             SecureCookieSession.get(s, "k")
     """))
     f = contracts.Finding("src/flask/sessions.py", 1, "SecureCookieSession.get", "Public object was removed")
-    from cie import rules
+    from aftershock import rules
     by_line = {s.line: s for s in reach.candidates(tmp_path, [f])}
     assert 5 in by_line and not by_line[5].resolved and rules.decide(by_line[5], "/x", "a", "b") is None
     assert by_line[6].resolved and rules.decide(by_line[6], "/x", "a", "b") is rules.RULE_BREAK
@@ -722,7 +722,7 @@ def test_removed_member_through_a_library_variable_is_not_decided_by_rule(tmp_pa
 
 def test_settings_module_detection_covers_directories():
     """Prefect keeps its settings in settings/models/root.py: the file name alone says nothing."""
-    from cie.prcheck import SETTINGS_PATH as S
+    from aftershock.prcheck import SETTINGS_PATH as S
     assert all(S.search(f) for f in ["src/prefect/settings/models/root.py", "jobs/config.py", "svc/server/settings.py"])
     assert not any(S.search(f) for f in ["src/prefect/flows.py", "docs/configuration.md"])
 
@@ -743,7 +743,7 @@ def _two_commit_lib(tmp_path):
 
 
 def test_fixcheck_ladder_good_fix_bad_fix_and_behaviour_change(tmp_path):
-    from cie import fixcheck
+    from aftershock import fixcheck
     lib, a, b = _two_commit_lib(tmp_path)
     cons = tmp_path / "cons"; (cons / "app").mkdir(parents=True)
     (cons / "app" / "__init__.py").write_text("")
@@ -774,7 +774,7 @@ def test_fixcheck_ladder_good_fix_bad_fix_and_behaviour_change(tmp_path):
 
 
 def test_fixcheck_missing_dependency_is_not_a_failed_fix(tmp_path):
-    from cie import fixcheck
+    from aftershock import fixcheck
     lib, a, b = _two_commit_lib(tmp_path)
     cons = tmp_path / "cons"; cons.mkdir()
     src = "import some_absent_dependency\nfrom pkg.mod import old_fn\n"
@@ -786,7 +786,7 @@ def test_fixcheck_missing_dependency_is_not_a_failed_fix(tmp_path):
 
 
 def test_fixcheck_apply_tracks_ranges_after_size_changes():
-    from cie import fixcheck
+    from aftershock import fixcheck
     src = "a\nb\nc\nd\n"
     new, ranges = fixcheck.apply(src, [fixcheck.Edit("f", 1, 1, "a1\na2"), fixcheck.Edit("f", 3, 3, "c1")])
     assert new == "a1\na2\nb\nc1\nd\n" and ranges == [(1, 2), (4, 4)]
@@ -795,7 +795,7 @@ def test_fixcheck_apply_tracks_ranges_after_size_changes():
 def test_fixcheck_in_repo_file_importing_a_dropped_dependency_does_not_resolve(tmp_path):
     """Prefect #20838 dropped typer; its own script still imported it, so no import-path fix could hold."""
     import subprocess
-    from cie import fixcheck
+    from aftershock import fixcheck
     lib = tmp_path / "lib"; (lib / "pkg").mkdir(parents=True); (lib / "scripts").mkdir()
     run = lambda *a: subprocess.run(["git", "-C", str(lib), *a], check=True, capture_output=True, text=True).stdout.strip()
     run("init", "-q"); run("config", "user.email", "t@t"); run("config", "user.name", "t")
@@ -837,7 +837,7 @@ def _span_for(root, finding, line):
 
 
 def test_fix_keyword_rewrite_holds_up(tmp_path):
-    from cie import fix, fixcheck
+    from aftershock import fix, fixcheck
     lib, a, b = _lib(tmp_path, {"pkg/__init__.py": "", "pkg/m.py": "def f(a, b, c=0):\n    return a + b + c\n"},
                      {"pkg/m.py": "def f(*, a, b, c=0):\n    return a + b + c\n"})
     cons = tmp_path / "cons"; cons.mkdir()
@@ -852,7 +852,7 @@ def test_fix_keyword_rewrite_holds_up(tmp_path):
 
 
 def test_fix_moved_import_and_changed_definition(tmp_path):
-    from cie import fix, fixcheck
+    from aftershock import fix, fixcheck
     lib, a, b = _lib(tmp_path, {"pkg/__init__.py": "", "pkg/m.py": "def helper(x):\n    return x\n\ndef other():\n    pass\n"},
                      {"pkg/m.py": "def other():\n    pass\n", "pkg/util.py": "def helper(x):\n    return x\n"})
     cons = tmp_path / "cons"; cons.mkdir()
@@ -873,7 +873,7 @@ def test_fix_moved_import_and_changed_definition(tmp_path):
 
 
 def test_fix_by_analogy_from_the_change_diff(tmp_path):
-    from cie import fix
+    from aftershock import fix
     diff = ("@@ -1,2 +1,2 @@\n-from pkg.root import app\n+from pkg._app import app\n"
             "@@ -9,2 +9,2 @@\n-    from pkg.root import app, is_interactive\n+    from pkg._app import app, is_interactive\n")
     assert fix.substitutions(diff, "pkg.root").most_common(1)[0] == (("pkg.root", "pkg._app"), 2)
@@ -886,14 +886,14 @@ def test_fix_by_analogy_from_the_change_diff(tmp_path):
 
 
 def test_fix_analogy_skips_half_of_a_multiline_edit():
-    from cie import fix
+    from aftershock import fix
     diff = "@@ -1 +1,3 @@\n-from pkg.root import app\n+from pkg._utilities import (\n+    app,\n+)\n"
     assert not fix.substitutions(diff, "pkg.root")
 
 
 def test_member_moved_to_a_base_class_is_not_a_verified_break(tmp_path):
     """flask 1d8b53f7: Flask's members moved into sansio App; griffe reports them removed from Flask."""
-    from cie import rules
+    from aftershock import rules
     lib, a, b = _lib(tmp_path, {"pkg/__init__.py": "", "pkg/app.py": "class Flask:\n    jinja_options = {}\n    def run(self):\n        return self.jinja_options\n"},
                      {"pkg/app.py": "from .sansio.app import App\nclass Flask(App):\n    def run(self):\n        return self.jinja_options\n",
                       "pkg/sansio/__init__.py": "", "pkg/sansio/app.py": "class App:\n    jinja_options = {}\n"})
@@ -921,7 +921,7 @@ def test_keyword_on_an_unrelated_callee_is_ambiguous(tmp_path):
 
 def test_verify_survives_a_dropped_connection(capsys):
     """pandas history run, 2026-10-07: one DNS failure mid-run crashed the benchmark. Transient errors are review items."""
-    from cie import verify
+    from aftershock import verify
 
     class Flaky:
         calls = 0
@@ -935,7 +935,7 @@ def test_verify_survives_a_dropped_connection(capsys):
 
 
 def test_fixcheck_flags_private_library_names_in_a_consumer_fix(tmp_path):
-    from cie import fixcheck
+    from aftershock import fixcheck
     lib, a, b = _lib(tmp_path, {"pkg/__init__.py": "", "pkg/m.py": "def helper():\n    pass\n"},
                      {"pkg/m.py": "def _helper():\n    pass\n"})
     cons = tmp_path / "cons"; cons.mkdir()
@@ -949,7 +949,7 @@ def test_fixcheck_flags_private_library_names_in_a_consumer_fix(tmp_path):
 
 def test_pr_packages_any_depth_and_stub_files(tmp_path):
     """pydantic #12924 changed pydantic-core/python/pydantic_core/*.pyi; a two-levels-deep scan never saw the package."""
-    from cie import prcheck
+    from aftershock import prcheck
     files = {"pydantic/__init__.py": "", "pydantic/main.py": "x = 1\n",
              "pydantic-core/python/pydantic_core/__init__.py": "", "pydantic-core/python/pydantic_core/_pydantic_core/__init__.pyi": "",
              "src/click/__init__.py": "", "src/click/core.py": "", "scripts/tool.py": "", "tests/test_a.py": ""}
@@ -960,7 +960,7 @@ def test_pr_packages_any_depth_and_stub_files(tmp_path):
 
 def test_member_of_a_class_with_an_external_base_is_not_verified_removed(tmp_path):
     """fastapi #16236 removed APIRouter.app because starlette's Router (an external base) provides it."""
-    from cie import rules
+    from aftershock import rules
     lib, a, b = _lib(tmp_path, {"fastapi/__init__.py": "", "fastapi/routing.py": "from starlette import routing\nclass APIRouter(routing.Router):\n    async def app(self, scope):\n        pass\n"},
                      {"fastapi/routing.py": "from starlette import routing\nclass APIRouter(routing.Router):\n    pass\n"})
     f = contracts.Finding("fastapi/routing.py", 1, "APIRouter.app", "Public object was removed")
@@ -984,7 +984,7 @@ def test_instance_attributes_make_a_member_ambiguous(tmp_path):
 def test_signature_reader_skips_overload_stubs(tmp_path):
     """click's progressbar: a keyword-only @overload ahead of the implementation was read as the signature, so every
     positional call 'broke' (still-broken-at-HEAD scan, examples/termui/termui.py)."""
-    from cie import positional
+    from aftershock import positional
     src = textwrap.dedent("""
         import typing as t
         @t.overload
@@ -1002,7 +1002,7 @@ def test_signature_reader_skips_overload_stubs(tmp_path):
 
 
 def test_signature_reader_finds_defs_under_version_guards():
-    from cie import positional
+    from aftershock import positional
     import ast as _ast
     tree = _ast.parse("import sys\nif sys.version_info >= (3, 11):\n    def f(a, b): ...\nelse:\n    def f(a): ...\n")
     assert positional.find_def(tree, "f").args.args[0].arg == "a"
@@ -1011,7 +1011,7 @@ def test_signature_reader_finds_defs_under_version_guards():
 def test_subclass_defining_the_member_and_getattr_classes(tmp_path):
     """huggingface_hub 3b306043 moved fields from HfFileSystemResolvedPath down into a subclass that defines them;
     werkzeug's Authorization serves attributes through __getattr__."""
-    from cie import rules
+    from aftershock import rules
     (tmp_path / "c.py").write_text(textwrap.dedent("""
         class HfFileSystemResolvedRepositoryPath(HfFileSystemResolvedPath):
             path_in_repo: str

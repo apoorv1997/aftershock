@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rank cie per repository from the two benchmarks.
+"""Rank aftershock per repository from the two benchmarks.
 
   history  (history_bench_all): spans, verified true/false, changed-but-unverified, rule share
   pairs    (pr_pair_score):     API-change pairs, verified consequences, predicted escapes (confirmed),
@@ -56,7 +56,7 @@ def main():
         c["review"] += len(r["review"]); c["review_conf"] += len(r["review_confirmed_by_fixer"]); c["missed"] += len(r["fixer_lines_naming_changed_object_unsurfaced"])
         c["naive"] += r.get("naive_lines", 0); c["naive_true"] += r.get("naive_true", 0)
     repos = sorted(set(H) | set(P), key=lambda k: -(H[k]["spans"] + P[k]["verified"]))
-    print(f"{'repo':<20}{'commits':>8}{'spans':>6}{'verified':>9}{'false':>6}{'unsurf':>7}{'rev_t':>6}{'cmp_t':>6}{'rule%':>6} | {'breakers':>8}{'verified':>9}{'escapes':>8}{'review':>7}{'missed':>7} {'cie prec':>9} {'grep prec':>11} | {'strong/weak/still':>17}")
+    print(f"{'repo':<20}{'commits':>8}{'spans':>6}{'verified':>9}{'false':>6}{'unsurf':>7}{'rev_t':>6}{'cmp_t':>6}{'rule%':>6} | {'breakers':>8}{'verified':>9}{'escapes':>8}{'review':>7}{'missed':>7} {'aftershock prec':>9} {'grep prec':>11} | {'strong/weak/still':>17}")
     T = collections.Counter(); TP = collections.Counter()
     for k in repos:
         h, p = H[k], P[k]
@@ -71,10 +71,10 @@ def main():
           f"{100 * (TP['by_breaker'] + TP['esc_conf']) / max(1, TP['verified']):>8.0f}% {100 * TP['naive_true'] / max(1, TP['naive']):>10.0f}% ({TP['naive']})")
     b = BULK; bs = sum(1 for x in b if x.startswith("_shas_"))
     print(f"{'bulk rewrites (>' + str(a.max_lines) + ' lines), reported apart':<20}\n{'':<20}{bs:>8}{b['spans']:>6}{b['tp']:>9}{b['fp']:>6}{b['unsurf']:>7}{b['rev_t']:>6}{b['cmp_t']:>6}{(100 * b['rule'] / max(1, b['spans'])):>5.0f}")
-    print("\nhistory: verified = cie said breaks AND the commit changed that line (or its import); false = said breaks, commit did not touch it;"
-          "\n         unsurf = changed lines naming a removed object cie never surfaced; rev_t / cmp_t = changed lines cie sent to review / called compatible."
+    print("\nhistory: verified = aftershock said breaks AND the commit changed that line (or its import); false = said breaks, commit did not touch it;"
+          "\n         unsurf = changed lines naming a removed object aftershock never surfaced; rev_t / cmp_t = changed lines aftershock sent to review / called compatible."
           "\npairs:   escapes a/b = verified lines the breaker did NOT update: a confirmed by the later fixer, b unconfirmed;"
-          "\n         cie prec = share of verified consequences that were real (updated by breaker or fixer); grep prec = same for every line naming a changed object.")
+          "\n         aftershock prec = share of verified consequences that were real (updated by breaker or fixer); grep prec = same for every line naming a changed object.")
 
 
 if __name__ == "__main__":

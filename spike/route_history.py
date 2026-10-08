@@ -8,7 +8,7 @@ Usage: route_history.py --lib <service repo> --ref origin/development --since 20
 from __future__ import annotations
 
 import argparse, datetime, pathlib, subprocess, tempfile
-from cie import routes
+from aftershock import routes
 
 
 def git(repo, *a):
@@ -37,7 +37,7 @@ def main():
         csha = git(a.consumer, "rev-list", "-1", f"--before={date}T23:59:59", a.consumer_ref).strip()
         if not csha:
             continue
-        with tempfile.TemporaryDirectory(prefix="cie-ui-") as tmp:
+        with tempfile.TemporaryDirectory(prefix="aftershock-ui-") as tmp:
             subprocess.run(f"git -C {a.consumer} archive {csha} | tar -x -C {tmp}", shell=True, check=False)
             hits = routes.consumers(tmp, [r.path for r in gone], tuple(a.ext.split(",")))
         named = [(r, f, ln, code) for r in gone for f, ln, code in hits.get(r.path, [])]

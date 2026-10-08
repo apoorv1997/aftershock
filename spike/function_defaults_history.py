@@ -5,8 +5,8 @@ later fix-type commit that touched the same object. Usage: function_defaults_his
 from __future__ import annotations
 
 import argparse, datetime, re, subprocess
-from cie import contracts
-from cie.prcheck import packages
+from aftershock import contracts
+from aftershock.prcheck import packages
 
 
 def git(repo, *a):

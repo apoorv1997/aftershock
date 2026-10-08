@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import collections, json, os, pathlib, re, subprocess, sys, tempfile
 
-MARK = "<!-- cie:pr-check -->"
+MARK = "<!-- aftershock:pr-check -->"
 # a settings module: config/settings in the file name OR any directory of the path (Prefect: settings/models/root.py)
 SETTINGS_PATH = re.compile(r"(^|/)(\w*(config|settings)\w*\.py|\w*(config|settings)\w*/.+\.py)$")
 
@@ -52,7 +52,7 @@ def packages(repo, base, head):
 
 
 def archive(repo, ref, sub=""):
-    tmp = tempfile.mkdtemp(prefix="cie-pr-")
+    tmp = tempfile.mkdtemp(prefix="aftershock-pr-")
     subprocess.run(f"git -C {repo} archive {ref} {sub or '.'} | tar -x -C {tmp}", shell=True, check=False)
     return tmp
 
@@ -61,10 +61,10 @@ class CheckFailed(RuntimeError):
     """A lens could not run. Never reported as clean: an empty result from a crashed check looks like 'no caller affected'."""
 
 
-def api_impact(cie, lib, pkg, search, old, new, consumer, budget):
+def api_impact(aftershock, lib, pkg, search, old, new, consumer, budget):
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
         out = f.name
-    r = subprocess.run([cie, "api-impact", "--lib", lib, "--package", pkg, "--search", search, "--old", old, "--new", new,
+    r = subprocess.run([aftershock, "api-impact", "--lib", lib, "--package", pkg, "--search", search, "--old", old, "--new", new,
                         "--consumer", consumer, "--no-tests", "--budget-usd", str(budget), "--json", out],
                        capture_output=True, text=True)
     text = r.stdout
@@ -72,11 +72,11 @@ def api_impact(cie, lib, pkg, search, old, new, consumer, budget):
         # a successful run always writes the JSON (an empty list when nothing is affected)
         if r.returncode or not os.path.getsize(out):
             tail = (r.stderr.strip().splitlines() or ["no output"])[-1][:160]
-            raise CheckFailed(f"`cie api-impact` exited {r.returncode}: {tail}")
+            raise CheckFailed(f"`aftershock api-impact` exited {r.returncode}: {tail}")
         m = re.search(r"Contract diff .*?: (\d+) findings", text)
         return (int(m.group(1)) if m else 0), json.load(open(out)), text
     except (OSError, ValueError) as e:
-        raise CheckFailed(f"`cie api-impact` left no readable result ({e.__class__.__name__})")
+        raise CheckFailed(f"`aftershock api-impact` left no readable result ({e.__class__.__name__})")
     finally:
         if os.path.exists(out):
             os.unlink(out)
@@ -91,7 +91,7 @@ def run(a):
     title = sh("gh", "pr", "view", str(a.pr), "-R", me["slug"], "--json", "title", "-q", ".title").strip()
     files = git(R, "diff", "--name-only", base, head).splitlines()
     behind = git(R, "rev-list", "--count", f"{head}..origin/{me['default']}").strip()
-    cie = a.cie
+    aftershock = a.aftershock
     from . import contracts
     checks: list[tuple[str, str, str]] = []     # (what was checked, against, result)
     breaks: list[str] = []; looks: list[str] = []; notes: list[str] = []; failed: list[str] = []
@@ -130,7 +130,7 @@ def run(a):
                         notes.append(f"{pin['repo']} pins `{pkg}` at `{m.group(1)[:8]}` in `{pin['file']}` — {n} `{pkg}` commit{'s' if n != '1' else ''} behind this PR; it will not see this change until the pin moves")
         for name, croot in consumers:
             try:
-                _, rows, _ = api_impact(cie, R, pkg, search, base, head, croot, a.budget_usd)
+                _, rows, _ = api_impact(aftershock, R, pkg, search, base, head, croot, a.budget_usd)
             except CheckFailed as e:
                 failed.append(f"{what.split(' — ')[0]} against {name}: {e}")
                 checks.append((what, name, f"⚠️ **check did not run** — {e}")); what = f"same, `{pkg}`"
@@ -155,7 +155,7 @@ def run(a):
         for c in nq["consumers"]:
             git(repos[c]["path"], "fetch", "-q", "origin", repos[c]["default"])
             d = archive(repos[c]["path"], f"origin/{repos[c]['default']}"); tmpdirs.append(d)
-            text = sh(cie, "named-queries", "--lib", R, "--src", nq["registry_path"], "--old", base, "--new", head, "--consumer", d, "--no-tests")
+            text = sh(aftershock, "named-queries", "--lib", R, "--src", nq["registry_path"], "--old", base, "--new", head, "--consumer", d, "--no-tests")
             hdr = next((l for l in text.splitlines() if l.startswith("Named-query contract")), "")
             m = re.search(r": (\d+) -> (\d+) queries, (\d+) changes", hdr)
             detail = [l.strip() for l in text.split("\nConsumer ")[0].splitlines()[1:] if l.strip() and "signature unchanged" not in l]
@@ -193,7 +193,7 @@ def run(a):
             code = os.path.join(own_root if spec["code_repo"] == a.repo else archive(repos[spec["code_repo"]]["path"], f"origin/{repos[spec['code_repo']]['default']}"), spec["code_sub"])
             chart = os.path.join(own_root if touched_chart else hroot, spec["chart"])
             values = spec.get("values", ["values.yaml"])          # a chart's values files; an environment overlay can be listed too
-            text = sh(cie, "config-contract", "--code", code, "--chart", *[f"{chart}/{v}" for v in values], f"{chart}/templates")
+            text = sh(aftershock, "config-contract", "--code", code, "--chart", *[f"{chart}/{v}" for v in values], f"{chart}/templates")
             req = re.search(r"REQUIRED by code \(no default\), not set by chart \((\d+)\): ?(.*)", text)
             unread = re.search(r"set by chart, read nowhere \((\d+)\)", text)
             nreq = int(req.group(1)) if req else 0

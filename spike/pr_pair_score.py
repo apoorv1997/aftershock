@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Score cie on (breaker, fixer) PR pairs from pr_pairs.py.
+"""Score aftershock on (breaker, fixer) PR pairs from pr_pairs.py.
 
 For each pair: the library is every Python package the breaker touched (first parent -> merge commit);
 the consumer is the repository just BEFORE the breaker (every caller still written against the old API,
-the same vantage as history_bench). cie's verified consequences split into: lines the breaker itself
+the same vantage as history_bench). aftershock's verified consequences split into: lines the breaker itself
 changed (callers the author updated) and the rest — predicted ESCAPES. An escape is confirmed when the
 fixer removed or rewrote a line with the same text in the same file; a fixer line that names a changed
-object and was never surfaced is a missed escape. A pair is "in cie's lens" only if the breaker changed a
-public API at all (griffe findings of the kinds cie handles); behavioural fixes are counted separately —
+object and was never surfaced is a missed escape. A pair is "in aftershock's lens" only if the breaker changed a
+public API at all (griffe findings of the kinds aftershock handles); behavioural fixes are counted separately —
 they are exactly what a signature diff cannot see.
 
 Usage: pr_pair_score.py <pairs.jsonl> --repo <slug>=<path> [--repo ...] [--budget-usd X] [--out scored.jsonl]"""
@@ -17,7 +17,7 @@ import argparse, ast, collections, json, pathlib, re, subprocess, sys, tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 from history_bench import changed_ranges, touched, span_touched, span_or_binding_touched, route            # noqa: E402
-from cie import budget, contracts, evidence, reach, verify           # noqa: E402
+from aftershock import budget, contracts, evidence, reach, verify           # noqa: E402
 
 KINDS = ("Parameter was removed", "Public object was removed", "Positional parameter was moved",
          "Parameter was added as required", "Parameter kind was changed")
@@ -96,7 +96,7 @@ def main():
                 cur = None
             elif l.startswith("-") and not l.startswith("---") and cur and l[1:].strip():
                 fixer_removed[cur].add(l[1:].strip())
-        with tempfile.TemporaryDirectory(prefix="cie-pair-") as tmp:
+        with tempfile.TemporaryDirectory(prefix="aftershock-pair-") as tmp:
             subprocess.run(f"git -C {repo} archive {bsha}^1 | tar -x -C {tmp}", shell=True, check=False)
             root = pathlib.Path(tmp)
             rows = []

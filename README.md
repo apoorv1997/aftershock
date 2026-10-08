@@ -1,4 +1,4 @@
-# cie — Change Impact Engine
+# aftershock
 
 Evidence-backed consequences of a change, verified. Never a risk score.
 
@@ -28,25 +28,25 @@ export TYPESAFE_API_KEY=...          # https://console.typesafe.ai/keys  (only a
 pip install -e .
 
 # library API change -> consequences in a consumer tree
-cie api-impact --lib ../httpx --package httpx --old 0.27.2 --new 0.28.0 --consumer ../my-service
-cie api-impact ... --github --per-query 60 --max-queries 12      # public consumers via GitHub code search
-cie api-impact ... --no-verify                                     # candidates only, no model calls
-cie api-impact ... --no-tests --format md --json out.json          # production code only, PR-comment markdown
+aftershock api-impact --lib ../httpx --package httpx --old 0.27.2 --new 0.28.0 --consumer ../my-service
+aftershock api-impact ... --github --per-query 60 --max-queries 12      # public consumers via GitHub code search
+aftershock api-impact ... --no-verify                                     # candidates only, no model calls
+aftershock api-impact ... --no-tests --format md --json out.json          # production code only, PR-comment markdown
 
 # named-query registry contract (registry signatures vs consumer payload keys); no model
-cie named-queries --lib ../data-service --src app/queries --old <ref> --new <ref> --consumer ../reporting --no-tests
+aftershock named-queries --lib ../data-service --src app/queries --old <ref> --new <ref> --consumer ../reporting --no-tests
 
 # env keys the code reads (os.getenv and pydantic Settings: env_prefix, aliases, required vs defaulted) vs keys the chart sets; no model
-cie config-contract --code ./service --chart ./charts/service/values.yaml ./charts/service/templates
+aftershock config-contract --code ./service --chart ./charts/service/values.yaml ./charts/service/templates
 
 # HTTP routes a Python service exposes (FastAPI decorators + include_router prefixes), old vs new, against URL
 # literals in ANY consumer — a TypeScript UI included; no model. A route that only moved under a mount prefix or
 # to another service still answers: spike/routes_estate.py checks "gone from the whole estate".
-cie routes --lib ../gateway --old <ref> --new <ref> --consumer ../web-ui --ext .ts,.tsx
+aftershock routes --lib ../gateway --old <ref> --new <ref> --consumer ../web-ui --ext .ts,.tsx
 
 # one pull request, every applicable lens, one comment — driven by an estate manifest (which repositories consume
 # which library, which chart belongs to which service, who calls whose routes); printed by default, --post sends it
-cie pr-check --estate ~/.config/cie/estate.json --repo my-lib --pr 123 [--post]
+aftershock pr-check --estate ~/.config/aftershock/estate.json --repo my-lib --pr 123 [--post]
 ```
 
 `--explain` adds prose for the engineer — what changed, which shown lines break and why, the smallest fix —
@@ -61,7 +61,7 @@ summarising never loses a consequence; and a review item named more than once is
 model first listed review items among the consequences).
 
 `--budget-usd` caps model spend per run (default $0.02; skipped spans are reported for review, never
-guessed). `CIE_MAX_SPEND_USD` caps all runs (default $1) through a ledger at `~/.cache/cie/spend.jsonl`.
+guessed). `AFTERSHOCK_MAX_SPEND_USD` caps all runs (default $1) through a ledger at `~/.cache/aftershock/spend.jsonl`.
 
 ## What the report means
 
@@ -78,7 +78,7 @@ Default-value changes are reported once, in aggregate, never per call.
 ## Evidence behind the design (2026-09)
 
 - Existing tools already detect public-API breaks: griffe found 37/38 real changes in httpx 0.28 and
-  43/46 in click 8.2. cie wraps it rather than re-implementing it.
+  43/46 in click 8.2. aftershock wraps it rather than re-implementing it.
 - Token reach lies: httpx's `app=` on `ASGITransport` looks identical to the removed `Client(app=)`.
   On 50 labelled cases (36 real + 14 adversarial: kwargs dicts, `partial`, wrappers, subclasses,
   aliases) the reach claim scored 50/50, unchanged under 2.7× irrelevant padding and negated phrasing;
@@ -102,22 +102,22 @@ stale — reported as a commits-behind note, since a signature diff cannot see f
 ## Layout
 
 ```text
-cie/contracts.py       griffe wrapper, Finding (module-qualified), package re-export map
-cie/reach.py           AST candidates: keyword/object/member matching, import + re-export resolver, receivers, aliases
-cie/positional.py      rules: positional moves, newly required params, parameter kind changes
-cie/evidence.py        JSON state for a claim; comments stripped
-cie/verify.py          Jev claims (reach Noul, break Choice) + calibrated thresholds
-cie/budget.py          per-run and cumulative spend caps, ledger
-cie/github_reach.py    public consumers via GitHub code search (10 searches/min)
-cie/named_queries.py   registry-signature HTTP contract vs consumer payload keys
-cie/config_contract.py env keys read (os.getenv, pydantic Settings with env_prefix/aliases, required-vs-default) vs set by a chart
-cie/routes.py          HTTP route contract: decorator paths + include_router prefixes, old vs new, vs URL literals in any language
-cie/rules.py           the one deterministic router (CLI and benchmarks share it)
-cie/prcheck.py         pr-check: manifest-driven, in-repo callers + cross-repo consumers + pins + queries + routes + chart, one comment
-cie/explain.py         prose over verified consequences only (template / ollama / anthropic) + 4 prose checks
+aftershock/contracts.py       griffe wrapper, Finding (module-qualified), package re-export map
+aftershock/reach.py           AST candidates: keyword/object/member matching, import + re-export resolver, receivers, aliases
+aftershock/positional.py      rules: positional moves, newly required params, parameter kind changes
+aftershock/evidence.py        JSON state for a claim; comments stripped
+aftershock/verify.py          Jev claims (reach Noul, break Choice) + calibrated thresholds
+aftershock/budget.py          per-run and cumulative spend caps, ledger
+aftershock/github_reach.py    public consumers via GitHub code search (10 searches/min)
+aftershock/named_queries.py   registry-signature HTTP contract vs consumer payload keys
+aftershock/config_contract.py env keys read (os.getenv, pydantic Settings with env_prefix/aliases, required-vs-default) vs set by a chart
+aftershock/routes.py          HTTP route contract: decorator paths + include_router prefixes, old vs new, vs URL literals in any language
+aftershock/rules.py           the one deterministic router (CLI and benchmarks share it)
+aftershock/prcheck.py         pr-check: manifest-driven, in-repo callers + cross-repo consumers + pins + queries + routes + chart, one comment
+aftershock/explain.py         prose over verified consequences only (template / ollama / anthropic) + 4 prose checks
 spike/history_bench.py repository-history benchmark: truth = the commit's own diff (callers the author updated)
 spike/pr_pairs.py      (breaker PR, fixer PR) miner: a later PR cites or rewrites what an earlier one wrote
-spike/pr_pair_score.py cie at the breaker's parent; verified lines split into updated-by-breaker vs predicted escapes
+spike/pr_pair_score.py aftershock at the breaker's parent; verified lines split into updated-by-breaker vs predicted escapes
 spike/confirm_escapes.py follows each predicted escape forward: the commit that rewrote it (strong / weak) or "still present"
 spike/rank.py          per-repository scorecard from both benchmarks; bulk rewrites (>3000 lines) reported apart
 spike/routes_estate.py, spike/route_history.py  route contract across a repository boundary, live and through history

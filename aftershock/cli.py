@@ -1,4 +1,4 @@
-"""cie — affected vs verified consequence, with the evidence path. Never a score."""
+"""aftershock — affected vs verified consequence, with the evidence path. Never a score."""
 from __future__ import annotations
 
 import argparse
@@ -22,7 +22,7 @@ def api_impact(a):
     if getattr(a, "github", False):
         import pathlib, tempfile
         from . import github_reach
-        consumer = a.consumer or tempfile.mkdtemp(prefix="cie-github-")
+        consumer = a.consumer or tempfile.mkdtemp(prefix="aftershock-github-")
         print(f"GitHub code search (throttled to 10/min) -> {consumer}")
         stats = github_reach.build_consumer_tree(findings, a.package, pathlib.Path(consumer),
                                                 per_query=a.per_query, max_queries=a.max_queries)
@@ -72,7 +72,7 @@ def report(spans, findings, a):
               "compatible": "Verified compatible", "unclear": "Evidence insufficient",
               "not_reached": "Not actually reached (look-alike)"}
     if md:
-        print(f"### cie: {a.package} {a.old} → {a.new}\n")
+        print(f"### aftershock: {a.package} {a.old} → {a.new}\n")
         counts = ", ".join(f"{len(groups[s])} {titles[s].lower()}" for s in order if groups[s])
         print(f"{len(findings)} API findings · {len(spans)} candidate spans · {counts}\n")
     for status in order:
@@ -212,7 +212,7 @@ def routes_cmd(a):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog="cie")
+    p = argparse.ArgumentParser(prog="aftershock")
     sub = p.add_subparsers(required=True)
     s = sub.add_parser("api-impact", help="library API diff -> consumer candidates -> verified consequences")
     s.add_argument("--lib", required=True, help="library checkout (git repo)")
@@ -225,7 +225,7 @@ def main(argv=None):
     s.add_argument("--max-queries", type=int, default=12, help="cap on distinct search queries (10/min limit)")
     s.add_argument("--no-verify", action="store_true", help="list candidates only, no model calls")
     s.add_argument("--budget-usd", type=float, default=0.02,
-                   help="hard cap on model spend for this run (default $0.02); CIE_MAX_SPEND_USD caps all runs (default $1)")
+                   help="hard cap on model spend for this run (default $0.02); AFTERSHOCK_MAX_SPEND_USD caps all runs (default $1)")
     s.add_argument("--keep-comments", action="store_true")
     s.add_argument("--format", choices=["text", "md"], default="text", help="md = GitHub-flavoured markdown for a PR comment")
     s.add_argument("--explain", action="store_true", help="prose for the engineer over verified consequences only")
@@ -253,11 +253,11 @@ def main(argv=None):
     r.add_argument("--ext", default=".ts,.tsx,.js,.jsx,.py,.vue")
     r.set_defaults(fn=routes_cmd)
     k = sub.add_parser("pr-check", help="one PR, every applicable lens from an estate manifest, one comment (printed; --post sends it)")
-    k.add_argument("--estate", default="~/.config/cie/estate.json"); k.add_argument("--repo", required=True, help="repo name in the manifest")
+    k.add_argument("--estate", default="~/.config/aftershock/estate.json"); k.add_argument("--repo", required=True, help="repo name in the manifest")
     k.add_argument("--pr", type=int, required=True); k.add_argument("--post", action="store_true")
     k.add_argument("--only-breaks", action="store_true", help="post only when something breaks; remove an earlier comment of ours if nothing does")
     k.add_argument("--budget-usd", type=float, default=0.02); k.add_argument("--max-lines", type=int, default=12)
-    k.add_argument("--cie", default=sys.argv[0]); k.add_argument("--python", default=sys.executable)
+    k.add_argument("--aftershock", default=sys.argv[0]); k.add_argument("--python", default=sys.executable)
     k.set_defaults(fn=prcheck.run)
     a = p.parse_args(argv)
     a.fn(a)

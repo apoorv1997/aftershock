@@ -14,7 +14,7 @@ Writes spike/calibration-<package>.jsonl and prints reliability tables + recomme
 from __future__ import annotations
 
 import argparse, ast, json, pathlib, subprocess, sys
-from cie import contracts, evidence, reach, verify
+from aftershock import contracts, evidence, reach, verify
 
 ROOT = pathlib.Path(__file__).resolve().parent
 

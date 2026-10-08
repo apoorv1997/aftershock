@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Benchmark cie against a repository's own history.
+"""Benchmark aftershock against a repository's own history.
 
-For every commit that changed a library package's public API (griffe findings of the kinds cie
+For every commit that changed a library package's public API (griffe findings of the kinds aftershock
 handles), the consumer is the same repo at the parent commit and the ground truth is the commit's
 own diff: a candidate line the commit changed or deleted had to change (break); an untouched line
 did not. Outputs precision/recall per commit and pooled, plus the model's reach/break answers with
@@ -12,7 +12,7 @@ Usage: history_bench.py <lib-repo> <package> [--search SRC] [--consumer-sub DIR]
 from __future__ import annotations
 
 import argparse, collections, json, pathlib, re, subprocess, sys, tempfile, time
-from cie import budget, contracts, evidence, positional, reach, rules, verify
+from aftershock import budget, contracts, evidence, positional, reach, rules, verify
 
 
 def git(repo, *a):
@@ -70,7 +70,7 @@ def span_or_binding_touched(ranges, gone, sub, s, root):
 
 
 def route(s, lib, old, new):
-    """Same deterministic routing as the CLI (cie.rules.decide); None = ask the model."""
+    """Same deterministic routing as the CLI (aftershock.rules.decide); None = ask the model."""
     return rules.decide(s, lib, old, new)
 
 
@@ -120,7 +120,7 @@ def main():
         if not findings:
             continue
         done += 1
-        with tempfile.TemporaryDirectory(prefix="cie-hist-") as tmp:
+        with tempfile.TemporaryDirectory(prefix="aftershock-hist-") as tmp:
             sub = a.consumer_sub
             subprocess.run(f"git -C {a.lib} archive {old} {sub or '.'} | tar -x -C {tmp}", shell=True, check=False)
             root = pathlib.Path(tmp) / sub if sub else pathlib.Path(tmp)
@@ -146,7 +146,7 @@ def main():
                                       "finding": s.finding.describe()[:120], "how": how, "status": v.status,
                                       "reach": v.reach, "break": v.break_choice, "conf": v.break_confidence,
                                       "truth_touched": truth}) + "\n")
-            # recall: references to removed names in the consumer that the commit touched but cie did not surface
+            # recall: references to removed names in the consumer that the commit touched but aftershock did not surface
             removed = [f for f in findings if "Public object was removed" in f.message]
             names = {f.object_name.split(".")[-1] for f in removed}
             members = {f.object_name.split(".")[-1] for f in removed if "." in f.object_name}   # Class.member: only `x.member` counts
@@ -197,7 +197,7 @@ def main():
                                 refs.add((rel, n.lineno))
             got = {(s.file, s.line) for s, _, _ in rows}
             rec_hit = len(refs & got); rec_n = len(refs)
-            for rel, ln in sorted(refs - got):          # changed lines naming a removed object that cie never surfaced
+            for rel, ln in sorted(refs - got):          # changed lines naming a removed object that aftershock never surfaced
                 out.write(json.dumps({"repo": a.lib, "sha": sha, "date": date, "subject": subj[:80], "file": rel, "line": ln,
                                       "finding": "unsurfaced reference to a removed object", "how": "none", "status": "unsurfaced",
                                       "reach": 0.0, "break": "", "conf": 0.0, "truth_touched": True}) + "\n")

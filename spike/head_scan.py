@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import argparse, concurrent.futures as cf, json, pathlib, subprocess, tempfile
 
-from cie import budget, contracts, evidence, fixcheck, positional, reach, rules, verify
+from aftershock import budget, contracts, evidence, fixcheck, positional, reach, rules, verify
 
 KINDS = ("Parameter was removed", "Public object was removed", "Positional parameter was moved",
          "Parameter was added as required", "Parameter kind was changed")
@@ -88,7 +88,7 @@ def main():
 
     out = open(a.out or f"spike/head-{pathlib.Path(a.repo).name}.jsonl", "w")
     seen, hits = set(), 0
-    with tempfile.TemporaryDirectory(prefix="cie-head-") as root:
+    with tempfile.TemporaryDirectory(prefix="aftershock-head-") as root:
         subprocess.run(f"git -C {a.repo} archive {a.head} | tar -x -C {root}", shell=True, check=False)
         head_sha = git(a.repo, "rev-parse", a.head).strip()
         exports = contracts.package_exports(a.repo, a.package, a.head, a.search)

@@ -8,12 +8,12 @@ import argparse, json, os, re, subprocess, sys, time
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("--estate", default="~/.config/cie/estate.json"); ap.add_argument("--only-breaks", action="store_true")
+    ap = argparse.ArgumentParser(); ap.add_argument("--estate", default="~/.config/aftershock/estate.json"); ap.add_argument("--only-breaks", action="store_true")
     ap.add_argument("--repos"); ap.add_argument("--out")
     ap.add_argument("--updated-since", help="only PRs updated on/after this date (YYYY-MM-DD)")
     ap.add_argument("--python-only", action="store_true", help="only PRs that touch a .py file")
     ap.add_argument("--no-drafts", action="store_true"); ap.add_argument("--shard", default="0/1", help="i/n: every n-th PR from i")
-    ap.add_argument("--cie", default=os.path.join(os.path.dirname(sys.executable), "cie"))
+    ap.add_argument("--aftershock", default=os.path.join(os.path.dirname(sys.executable), "aftershock"))
     a = ap.parse_args(); est = json.load(open(os.path.expanduser(a.estate)))
     names = a.repos.split(",") if a.repos else [n for n, r in est["repos"].items() if not r.get("ext")]
     rows = []
@@ -26,7 +26,7 @@ def main():
         prs = sorted(prs, key=lambda p: p["number"])[i::n]
         for pr in prs:
             t0 = time.time()
-            r = subprocess.run([a.cie, "pr-check", "--estate", a.estate, "--repo", name, "--pr", str(pr["number"])] + (["--only-breaks"] if a.only_breaks else []), capture_output=True, text=True)
+            r = subprocess.run([a.aftershock, "pr-check", "--estate", a.estate, "--repo", name, "--pr", str(pr["number"])] + (["--only-breaks"] if a.only_breaks else []), capture_output=True, text=True)
             out = r.stdout + r.stderr
             v = re.search(r"\[verdict\] (\w+) breaks=(\d+) looks=(\d+) checks=(\d+)", out)
             action = "posted" if "[posted]" in out else "updated" if "[updated" in out else "removed earlier" if "[removed earlier" in out else ""

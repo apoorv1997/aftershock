@@ -183,16 +183,16 @@ def _flag(text: str, allowed: set[str], change: dict, kept_locs: set[str] = froz
     # completeness: a verified location the prose never names is appended, so no consequence is lost to summarising
     missing = sorted(l for l in kept_locs if l not in text)
     if missing:
-        text += "\n\n> cie: verified consequences the model did not list — they stand regardless: " + ", ".join(f"`{m}`" for m in missing)
+        text += "\n\n> aftershock: verified consequences the model did not list — they stand regardless: " + ", ".join(f"`{m}`" for m in missing)
     # attribution: a review item named more than once was very likely described as a consequence somewhere above
     over = sorted(l for l in review_locs if text.count(l) > 1)
     if over:
-        text += "\n\n> cie: these locations are for a human to confirm, not verified consequences, wherever the prose above says otherwise: " + ", ".join(f"`{o}`" for o in over)
+        text += "\n\n> aftershock: these locations are for a human to confirm, not verified consequences, wherever the prose above says otherwise: " + ", ".join(f"`{o}`" for o in over)
     apis = unknown_apis(text, change.get("library", ""), set(change.get("public_names") or [])) if change.get("public_names") else []
     if bad:
-        text += "\n\n> cie: the model referenced locations that were not in its input and must be ignored: " + ", ".join(bad)
+        text += "\n\n> aftershock: the model referenced locations that were not in its input and must be ignored: " + ", ".join(bad)
     if apis:
-        text += ("\n\n> cie: the model proposed APIs that " + change.get("library", "the library") + " " +
+        text += ("\n\n> aftershock: the model proposed APIs that " + change.get("library", "the library") + " " +
                  str(change.get("new_version", "")) + " does not define — treat these fixes as unverified: " + ", ".join(apis))
     return text, bad, apis
 

@@ -80,7 +80,7 @@ def verify(states: list[dict], client: TypeSafeClient | None = None, budget=None
     if client is None and not os.environ.get("TYPESAFE_API_KEY"):
         # offline: what the rules did not decide goes to a person, exactly as when the budget cap is hit
         if states:
-            print(f"cie: TYPESAFE_API_KEY is not set — {len(states)} span(s) the rules could not decide are left for review, "
+            print(f"aftershock: TYPESAFE_API_KEY is not set — {len(states)} span(s) the rules could not decide are left for review, "
                   f"none judged by the model", file=sys.stderr)
         return [SKIPPED] * len(states)
     own = client is None
@@ -113,5 +113,5 @@ def verify(states: list[dict], client: TypeSafeClient | None = None, budget=None
         if own:
             client.close()
     if failed:
-        print(f"cie: {failed} model call(s) failed ({type(last).__name__}) — those spans are left for review", file=sys.stderr)
+        print(f"aftershock: {failed} model call(s) failed ({type(last).__name__}) — those spans are left for review", file=sys.stderr)
     return out

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import argparse, collections, difflib, json, pathlib, re, subprocess, sys, tempfile
 
-from cie import contracts, fix, fixcheck, reach
+from aftershock import contracts, fix, fixcheck, reach
 
 
 def git(repo, *a):
@@ -63,7 +63,7 @@ def main():
         if any(rel == f.path for f in fs):   # a module that defines a changed object: its edit IS the change, not a missed caller
             rec["outcome"] = "defines the changed object (not scored)"; tally[rec["outcome"]] += 1
             out.write(json.dumps(rec) + "\n"); continue
-        with tempfile.TemporaryDirectory(prefix="cie-fb-") as d:
+        with tempfile.TemporaryDirectory(prefix="aftershock-fb-") as d:
             p = pathlib.Path(d, rel); p.parent.mkdir(parents=True, exist_ok=True); p.write_text(old_src)
             spans = [s for s in reach.candidates(d, fs, exports=contracts.package_exports(a.lib, a.package, old, a.search),
                                                  modules=contracts.library_modules(a.lib, a.package, old, a.search))

@@ -7,7 +7,7 @@ Usage: defaults_history.py --repo <path> --ref origin/development --since 2026-0
 from __future__ import annotations
 
 import argparse, datetime, re, subprocess
-from cie.config_contract import settings_defaults
+from aftershock.config_contract import settings_defaults
 
 
 def git(repo, *a):

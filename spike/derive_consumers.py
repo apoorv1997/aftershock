@@ -3,7 +3,7 @@
 
 For every Python package under the library repository's `python/*/src/<pkg>` (and any manifest library), grep
 every manifest repository at its default branch for `import <pkg>` / `from <pkg>` in non-test .py files.
-Usage: derive_consumers.py --estate ~/.config/cie/estate.json [--write]"""
+Usage: derive_consumers.py --estate ~/.config/aftershock/estate.json [--write]"""
 from __future__ import annotations
 
 import argparse, json, os, re, subprocess
@@ -14,7 +14,7 @@ def git(repo, *a):
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("--estate", default="~/.config/cie/estate.json"); ap.add_argument("--write", action="store_true")
+    ap = argparse.ArgumentParser(); ap.add_argument("--estate", default="~/.config/aftershock/estate.json"); ap.add_argument("--write", action="store_true")
     a = ap.parse_args(); path = os.path.expanduser(a.estate); est = json.load(open(path))
     repos = {k: {**v, "path": os.path.expanduser(v["path"])} for k, v in est["repos"].items()}
     # library packages: every python/*/src/<pkg> in any repo, plus what the manifest already lists

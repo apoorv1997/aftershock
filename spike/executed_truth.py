@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Executed truth for verified consequences: overlay the changed package from commit C onto the repository at C^1
-(every other package still written against the old API), run the consumers' own tests, and see which of cie's
+(every other package still written against the old API), run the consumers' own tests, and see which of aftershock's
 verified lines actually raise. A flagged line that never raises is "not exercised", not "false": test coverage
-decides that. Frames that raise on lines cie never flagged, naming a changed object, are missed consequences.
+decides that. Frames that raise on lines aftershock never flagged, naming a changed object, are missed consequences.
 
 Built for a uv-workspace monorepo whose tests are export-ignored and whose shared libraries are vendored from a
 second repository (`--utils`, `--vendor-libs`), as of the commit's date.
@@ -69,7 +69,7 @@ def main():
         mods = {m.rsplit(".", 1)[0] if re.search(r"\.[A-Z]\w*$", m) and path_of(m, tree_old) is None else m for m in mods}   # Class.member -> module
         overlay_files = sorted({p for m in mods for p in [path_of(m, tree_old), path_of(m, tree_new)] if p})
         dirs = overlay_files
-        t0 = time.time(); tmp = tempfile.mkdtemp(prefix="cie-exec-")
+        t0 = time.time(); tmp = tempfile.mkdtemp(prefix="aftershock-exec-")
         try:
             restored = export(a.repo, sha + "^1", tmp)
             if a.utils and a.vendor_libs:

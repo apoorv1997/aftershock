@@ -20,7 +20,7 @@ Findings that changed the design:
 2. Two apparent model failures were question/label defects: "reach" is the wrong question for a
    positional move (the consumer never passes the moved keyword), and a removed `click.parser.Option`
    was being matched against `click.Option` (= `click.core.Option`) by both the label and the evidence.
-   Both moved into deterministic code (`cie/positional.py`, `reach.resolve`).
+   Both moved into deterministic code (`aftershock/positional.py`, `reach.resolve`).
 3. Thresholds: REACH_YES 0.8, REACH_NO 0.4, BREAK_AUTO 0.8. Supported by the data above; re-run
    `spike/calibrate.py` after any change to the questions, the renderer, or the model version.
 
@@ -86,7 +86,7 @@ huggingface_hub 41/41, pandas 11/11, werkzeug 364/373, click 109/109, Prefect 18
 pydantic 10/10. flask's verified-true count fell 233 -> 124: 105 of the 109 were members moved into the sansio base in
 1d8b53f7, lines the commit touched because it moved them, not because they broke.
 
-Fixes (cie/fix.py proposes, cie/fixcheck.py climbs parses / resolves / clears / runs; spike/fix_bench.py hides one file's
+Fixes (aftershock/fix.py proposes, aftershock/fixcheck.py climbs parses / resolves / clears / runs; spike/fix_bench.py hides one file's
 edits from its commit and compares with what the author wrote). Per (commit, file), excluding files that define the
 changed object: click 11 of 13 held up to runs, werkzeug 14 of 30, flask 4 of 18, Prefect 0 of 24 (19 rejected at
 resolves: the CLI files import typer, which the change dropped), huggingface_hub 0 of 5, pandas 0 of 5 (partial: the

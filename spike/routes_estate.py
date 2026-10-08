@@ -5,7 +5,7 @@ URL literals in a consumer. Usage: routes_estate.py --lib <path> --old <ref> --e
 from __future__ import annotations
 
 import argparse
-from cie import routes
+from aftershock import routes
 
 
 def main():

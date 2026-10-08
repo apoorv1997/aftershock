@@ -2,7 +2,7 @@
 
 Two limits, both in USD at the list price ($0.042 per million input tokens, output free):
   per run     --budget-usd (default 0.02)
-  cumulative  CIE_MAX_SPEND_USD (default 1.00), tracked in ~/.cache/cie/spend.jsonl across runs
+  cumulative  AFTERSHOCK_MAX_SPEND_USD (default 1.00), tracked in ~/.cache/aftershock/spend.jsonl across runs
 The TypeSafe console is the only place a limit can be enforced on their side; this is the client side."""
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import pathlib
 import time
 
 PRICE_PER_TOKEN = 0.042 / 1_000_000
-LEDGER = pathlib.Path.home() / ".cache" / "cie" / "spend.jsonl"
+LEDGER = pathlib.Path.home() / ".cache" / "aftershock" / "spend.jsonl"
 
 
 class BudgetExceeded(RuntimeError):
@@ -22,7 +22,7 @@ class BudgetExceeded(RuntimeError):
 class Budget:
     def __init__(self, run_usd: float = 0.02, total_usd: float | None = None):
         self.run_usd = run_usd
-        self.total_usd = float(os.environ.get("CIE_MAX_SPEND_USD", 1.00)) if total_usd is None else total_usd
+        self.total_usd = float(os.environ.get("AFTERSHOCK_MAX_SPEND_USD", 1.00)) if total_usd is None else total_usd
         self.spent_tokens = 0
         self.skipped = 0
         self.prior_usd = self._ledger_total()

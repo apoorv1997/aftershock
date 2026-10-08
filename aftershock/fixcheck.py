@@ -3,7 +3,7 @@
   parses    the patched file is valid Python
   resolves  every library import and library reference on the edited lines names a module and a binding that exist
             at the new ref
-  clears    cie on the patched file (rules only): no break of the fixed change is left in it, and no new one appears
+  clears    aftershock on the patched file (rules only): no break of the fixed change is left in it, and no new one appears
   runs      the patched module imports with the library at the new ref
 
 A fix that deletes an argument or a call is flagged as a behaviour change whatever it passes: it silences the error by
@@ -192,7 +192,7 @@ def clears(old_src: str, new_src: str, rel: str, ranges, findings, target, lib_r
     import of a removed object still fails at that import — and no new break appears. Rules only (no model): what they
     leave undecided is counted, not judged."""
     def verified(src):
-        with tempfile.TemporaryDirectory(prefix="cie-fix-") as d:
+        with tempfile.TemporaryDirectory(prefix="aftershock-fix-") as d:
             p = pathlib.Path(d) / rel
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(src)
@@ -225,7 +225,7 @@ def runs(new_src: str, rel: str, consumer_root: str | None, lib_root: str, packa
     if not module:
         return Rung("runs", "not_run", "not an importable module")
     top = module.split(".")[0]
-    with tempfile.TemporaryDirectory(prefix="cie-run-") as d:
+    with tempfile.TemporaryDirectory(prefix="aftershock-run-") as d:
         lib = pathlib.Path(d, "lib")
         lib.mkdir()
         pkg_dir = f"{search + '/' if search else ''}{package}"
