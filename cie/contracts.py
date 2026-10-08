@@ -28,11 +28,11 @@ class Finding:
     def module(self) -> str:
         """`src/click/parser.py` -> `click.parser`; `httpx/_client.py` -> `httpx._client`."""
         parts = self.path.replace("\\", "/").split("/")
-        if "src" in parts:                       # python/obs-log/src/obs_log/tracing.py -> obs_log.tracing
+        if "src" in parts:                       # python/log-kit/src/logkit/tracing.py -> logkit.tracing
             parts = parts[len(parts) - parts[::-1].index("src"):]
         if parts:
-            parts[-1] = parts[-1].removesuffix(".py")   # before the identifier check: `batch-svc/main.py` -> `main`
-        while parts and not parts[0].isidentifier():   # drop non-importable prefixes such as `obs-log`
+            parts[-1] = parts[-1].removesuffix(".py")   # before the identifier check: `job-runner/main.py` -> `main`
+        while parts and not parts[0].isidentifier():   # drop non-importable prefixes such as `log-kit`
             parts = parts[1:]
         if parts and parts[-1] == "__init__":
             parts = parts[:-1]
@@ -107,6 +107,28 @@ def griffe_findings(package: str, old_ref: str, new_ref: str, cwd: str, search: 
     return parse_oneline(r.stdout + "\n" + r.stderr)
 
 
+def binds(src: str, name: str) -> bool:
+    """Does this module source bind `name` anywhere — def/class, assignment (any branch, `if TYPE_CHECKING` too),
+    import, or by name in `__all__` / a lazy-export table (`_dynamic_imports = {"X": (...)}`)? Unparseable = unknown = True."""
+    import ast
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return True
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name:
+            return True
+        if isinstance(n, ast.Name) and n.id == name and isinstance(n.ctx, ast.Store):
+            return True
+        if isinstance(n, (ast.Import, ast.ImportFrom)) and any((a.asname or a.name.split(".")[0]) == name for a in n.names):
+            return True
+        if isinstance(n, (ast.Assign, ast.AnnAssign)) and any(isinstance(t, ast.Name) and t.id in ("__all__", "_dynamic_imports")
+                                                              for t in (n.targets if isinstance(n, ast.Assign) else [n.target])):
+            if n.value is not None and any(isinstance(c, ast.Constant) and c.value == name for c in ast.walk(n.value)):
+                return True
+    return False
+
+
 def library_modules(lib_root: str, package: str, ref: str, search: str | None = None) -> set[str]:
     """Dotted names of every module and package of the library at `ref` (`prefect`, `prefect.context`, ...).
     A receiver that resolves to one of these is a module, never an instance of a class: `prefect.context.X` cannot
@@ -131,8 +153,7 @@ def commits_behind(lib_root: str, old_ref: str, new_ref: str, path: str) -> tupl
     """(commits on old_ref not in new_ref, commits on new_ref not in old_ref) that touch `path`.
 
     A signature diff sees API changes only; a branch whose copy of a library is *behind* the trunk
-    also lacks every behavioural fix made since. Reported as a lag, not a finding (obs-log to main,
-    2026-09-29: 1 API finding, N fixes invisible to griffe)."""
+    also lacks every behavioural fix made since. Reported as a lag, not a finding."""
     def count(rng):
         r = subprocess.run(["git", "-C", lib_root, "rev-list", "--count", rng, "--", path], capture_output=True, text=True)
         return int(r.stdout.strip() or 0)

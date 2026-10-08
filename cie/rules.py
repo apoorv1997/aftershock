@@ -3,7 +3,9 @@
 Shared by the CLI and the benchmarks so they can never drift apart."""
 from __future__ import annotations
 
-from . import positional
+import functools
+
+from . import contracts, positional
 from .reach import Span
 from .verify import SKIPPED, Verdict
 
@@ -24,29 +26,76 @@ def still_bound(s: Span, lib_root: str, new_ref: str) -> bool:
     r = subprocess.run(["git", "-C", lib_root, "show", f"{new_ref}:{f.path}"], capture_output=True, text=True)
     if r.returncode:
         return True                                     # the file is gone: the removal is real
-    try:
-        tree = ast.parse(r.stdout)
-    except SyntaxError:
-        return True
-    name = f.object_name
-    for n in ast.walk(tree):
-        if isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name:
-            return False
-        if isinstance(n, ast.Name) and n.id == name and isinstance(n.ctx, ast.Store):
-            return False
-        if isinstance(n, (ast.Import, ast.ImportFrom)) and any((a.asname or a.name.split(".")[0]) == name for a in n.names):
-            return False
-        # still exported by name: `__all__`, or a lazy-export table (`_dynamic_imports = {"X": (parent, ".mod")}`)
-        if isinstance(n, (ast.Assign, ast.AnnAssign)) and any(isinstance(t, ast.Name) and t.id in ("__all__", "_dynamic_imports")
-                                                              for t in (n.targets if isinstance(n, ast.Assign) else [n.target])):
-            if n.value is not None and any(isinstance(c, ast.Constant) and c.value == name for c in ast.walk(n.value)):
+    return not contracts.binds(r.stdout, f.object_name)
+
+
+@functools.lru_cache(maxsize=512)
+def _show(lib_root: str, ref: str, path: str) -> str | None:
+    import subprocess
+    r = subprocess.run(["git", "-C", lib_root, "show", f"{ref}:{path}"], capture_output=True, text=True)
+    return r.stdout if r.returncode == 0 else None
+
+
+def inherited(f, lib_root: str, new_ref: str, depth: int = 3) -> bool:
+    """Is the 'removed' member `Class.member` still provided at the new ref by Class itself or a base class of the
+    library? Moving members up into a new base (flask 1d8b53f7, sansio App) is reported by griffe as removal."""
+    import ast
+    from . import reach
+    parts = f.object_name.split(".")
+    if len(parts) < 2:
+        return False
+    cls_name, member = parts[-2], parts[-1]
+    mod_file = f.module.replace(".", "/")
+    prefix = f.path[: f.path.rfind(mod_file)] if mod_file and mod_file in f.path else ""
+
+    show = lambda path: _show(lib_root, new_ref, path)
+
+    def find(module, name, d):
+        for path in (f"{prefix}{module.replace('.', '/')}.py", f"{prefix}{module.replace('.', '/')}/__init__.py"):
+            src = show(path)
+            if src is None:
+                continue
+            try:
+                tree = ast.parse(src)
+            except SyntaxError:
                 return False
-    return True
+            for c in tree.body:
+                if isinstance(c, ast.ClassDef) and c.name == name:
+                    if any(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in (member, "__getattr__", "__getattribute__")
+                           for n in c.body) or \
+                       any(member in reach.target_names(t) for n in c.body if isinstance(n, ast.Assign) for t in n.targets) or \
+                       any(isinstance(n, ast.AnnAssign) and member in reach.target_names(n.target) for n in c.body) or \
+                       any(isinstance(n, ast.Attribute) and n.attr == member and isinstance(n.ctx, ast.Store)
+                           and isinstance(n.value, ast.Name) and n.value.id == "self" for n in ast.walk(c)):
+                        return True
+                    if d <= 0:
+                        return False
+                    imports = reach._import_map(tree, path[len(prefix):])
+                    pkg = f.module.split(".")[0]
+                    for b in c.bases:
+                        dotted = reach._dotted(b)
+                        if not dotted or dotted in ("object", "Generic", "Protocol"):
+                            continue
+                        q = reach.resolve(dotted, imports, {})
+                        if not (q == pkg or q.startswith(pkg + ".")) and dotted.split(".")[0] in imports:
+                            # a base from another package (fastapi APIRouter(starlette.routing.Router), PR #16236 removed
+                            # its own `app` because Starlette's Router provides it): it may provide the member, and its
+                            # source is not in this repository — so the removal cannot be verified
+                            return True
+                        bmod, _, bname = q.rpartition(".")
+                        if find(bmod or module, bname, d - 1):
+                            return True
+                    return False
+            return False
+        return False
+    return find(f.module, cls_name, depth)
 
 
 def decide(s: Span, lib_root: str, old_ref: str, new_ref: str) -> Verdict | None:
     """A Verdict when a rule settles the span, None when the model must judge."""
     m, b = s.finding.message, None
+    if "Public object was removed" in m and "." in s.finding.object_name and inherited(s.finding, lib_root, new_ref):
+        return SKIPPED     # still provided by the class or a base at the new ref: a person decides
     if "." in s.finding.object_name and s.ambiguous and s.receiver != "self":
         return None        # a member reached through an unknown receiver that the consumer also defines: the receiver's type decides
     if "Positional parameter was moved" in m:
@@ -63,7 +112,7 @@ def decide(s: Span, lib_root: str, old_ref: str, new_ref: str) -> Verdict | None
         b = True          # importing a deleted module fails at import time
     elif "Public object was removed" in m and s.resolved and not s.ambiguous:
         # the reference resolves through an import (or the module's own name) to exactly the removed
-        # object: nothing is left for the model to judge (7 own-module uses sat at reach 0.2-0.4, 2026-09-29)
+        # object: nothing is left for the model to judge
         if not still_bound(s, lib_root, new_ref):
             return SKIPPED     # still exported at the new ref: a person decides; the model cannot see the new module (pydantic, 2026-10-01)
         b = True

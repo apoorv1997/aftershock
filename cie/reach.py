@@ -23,9 +23,25 @@ class Span:
     context: str         # a few lines before, through the end of the statement
     finding: Finding
     receiver: str = ""   # for an override: the enclosing class's bases; for `x.m(...)`: the receiver `x`
-    alias: str = ""      # the callee's local name when it differs from the finding's (`_obs_start_span`)
+    alias: str = ""      # the callee's local name when it differs from the finding's (`_lk_start_span`)
     ambiguous: bool = False   # member reached through an unknown receiver AND the consumer defines a same-named member itself
     resolved: bool = False    # the callee / reference resolves to the library through imports (rules may decide; else the model)
+
+
+def class_members(cls: ast.ClassDef) -> set[str]:
+    """Names a class defines itself: methods, class-body assignments and annotations, and `self.x = ...` in its methods."""
+    out = set()
+    for b in cls.body:
+        if isinstance(b, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            out.add(b.name)
+        elif isinstance(b, ast.Assign):
+            for t in b.targets:
+                out |= target_names(t)
+        elif isinstance(b, ast.AnnAssign):
+            out |= target_names(b.target)
+    out |= {n.attr for n in ast.walk(cls) if isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Store)
+            and isinstance(n.value, ast.Name) and n.value.id == "self"}
+    return out
 
 
 def is_test_path(rel: str) -> bool:
@@ -104,8 +120,8 @@ def module_of(rel: str) -> str:
 
 def _import_map(tree: ast.AST, rel: str = "") -> dict[str, str]:
     """Local name -> qualified name from this file's imports (`from click.parser import Option as O`).
-    Relative imports resolve against the file's own module (`from .warehouse_kpi import X` inside
-    `pkg/providers/handlers.py` -> `pkg.providers.warehouse_kpi.X`); one that reaches above the tree is
+    Relative imports resolve against the file's own module (`from .db_metrics import X` inside
+    `pkg/providers/handlers.py` -> `pkg.providers.db_metrics.X`); one that reaches above the tree is
     left unbound, so the name stays a bare candidate."""
     m = {}
     mod = module_of(rel).split(".") if rel else []
@@ -128,7 +144,7 @@ def _import_map(tree: ast.AST, rel: str = "") -> dict[str, str]:
 
 
 def _library_typed(tree: ast.AST, imports: dict[str, str], exports: dict[str, str], package: str) -> set[str]:
-    """Names this file binds to a library instance: `spec = ColumnSpec(...)`, `x: pkg.Client`, `def f(c: Client)`."""
+    """Names this file binds to a library instance: `spec = FieldSpec(...)`, `x: pkg.Client`, `def f(c: Client)`."""
     out = set()
     def is_lib(node):
         d = _dotted(node) if node is not None else None
@@ -233,7 +249,7 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
             head = f.object_name.split(".")[0]
             if callee in (head, f.object_name.split(".")[-1]) or resolved.split(".")[-1] == head and resolved.startswith(package + "."):
                 # same name through a receiver: a module-level object needs the library as receiver
-                # (`client.list_sites(market=...)` on a gRPC stub is not routers.observability.list_sites)
+                # (`client.list_orders(region=...)` on a gRPC stub is not routers.orders.list_orders)
                 if isinstance(node.func, ast.Attribute) and "." not in f.object_name:
                     r = resolve(_dotted(node.func.value) or "", imports, exports)
                     if not (r == package or r.startswith(package + ".") or (_dotted(node.func.value) or "").split(".")[0] in rel_names):
@@ -241,10 +257,9 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
                 return f
         # `httpx.Client(http2=True)`, or `ASGITransport(app=app)` imported from httpx, is a different API
         # of the same library than the finding: not a candidate. A callee imported from anywhere else
-        # (`obs_pb.ListSitesRequest(market=...)`) is another package's API. A class defined in this file
+        # (`api_pb.ListOrdersRequest(region=...)`) is another package's API. A class defined in this file
         # takes its own constructor keywords. A function defined in this file is a wrapper only if its
-        # body mentions the changed object. What remains — a callee we cannot resolve — stays a candidate
-        # (2026-09-27 cross-repo sample; 2026-09-29 PR-pair sample).
+        # body mentions the changed object. What remains — a callee we cannot resolve — stays a candidate.
         if resolved.startswith(package + "."):
             return None
         if resolved != d and d.split(".")[0] not in rel_names:
@@ -300,7 +315,7 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
 
     spans, seen = [], set()
     # members the consumer defines on its own classes: `x.description` with an unknown `x` is then ambiguous
-    # (a `_Doc.description` looked like the removed `ColumnSpec.description`, 2026-09-29) — the model still
+    # (the consumer's own `Doc.description` looks like a removed `Column.description`) — the model still
     # judges, but a "breaks" verdict is capped to needs_review
     own_members: set[str] = set()
     def_mentions: dict[str, set[str]] = {}      # every def of a name anywhere in the tree -> names its bodies mention
@@ -314,6 +329,10 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
                 def_mentions.setdefault(c.name, set()).update(
                     n.id if isinstance(n, ast.Name) else n.attr for n in ast.walk(c) if isinstance(n, (ast.Name, ast.Attribute)))
             if isinstance(c, ast.ClassDef):
+                # instance attributes count too: fastapi's APIRoute sets `self.app = ...`, so `route.app` with an unknown
+                # `route` is ambiguous against a removed APIRouter.app (PR #16236)
+                own_members |= {n.attr for n in ast.walk(c) if isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Store)
+                                and isinstance(n.value, ast.Name) and n.value.id == "self"}
                 for b in c.body:
                     if isinstance(b, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         own_members.add(b.name)
@@ -325,9 +344,9 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
     for path in _py_files(root):
         rel = str(path.relative_to(root))
         # a vendored copy of the library itself (`.../httpx/_api.py`) is not a consumer; 11 of 30 sampled
-        # cross-repo "consequences" were such copies (2026-09-27)
+        # cross-repo "consequences" were such copies
         # (only for fetched GitHub trees: inside the library's own repo the package directory is the code
-        # under test, e.g. batch-svc's `data/` package consumed by batch-svc itself)
+        # under test, e.g. job-runner's `data/` package consumed by job-runner itself)
         if skip_vendored and package and package in pathlib.PurePosixPath(rel).parts[:-1]:
             continue
         try:
@@ -342,7 +361,7 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
         lib_typed = _library_typed(tree, imports, exports, package)
         local_classes = {n.name for n in ast.walk(tree) if isinstance(n, ast.ClassDef)}
         # module-level names this file defines itself: `REQUEST_ID_HEADER = "X-Request-ID"` is not the
-        # library's constant of the same name (a false "verified" removal, 2026-09-29)
+        # library's constant of the same name
         def _module_scope(stmts):
             """Statements at module scope, descending into if/try/with/for blocks but never into defs or classes."""
             for n in stmts:
@@ -368,9 +387,9 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
                 return False
             # a module-level object reached through a receiver (`admin.create_user(...)`): the receiver must
             # be the library itself (`import httpx; httpx.create_ssl_context`, `from pkg.routes import admin`).
-            # A local object's method of the same name is not it — AdminService.update_user vs the route
-            # function routes.admin.update_user gave 4 false "verified" breaks (2026-09-29). A name bound
-            # by a relative import cannot be resolved, so it stays a candidate.
+            # A local object's method of the same name is not it (`AdminService.update_user` is not the module
+            # function `pkg.routes.admin.update_user`). A name bound by a relative import cannot be resolved,
+            # so it stays a candidate.
             if "." not in f.object_name and isinstance(ref_node, ast.Attribute):
                 d = _dotted(ref_node.value)
                 r = resolve(d, imports, exports) if d else ""
@@ -380,7 +399,7 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
                     return False
             # removed objects must resolve to the finding's module. Any other name match is dropped when
             # it resolves to a module outside the library (`from logging_config import start_span` is the
-            # consumer's own wrapper, not obs_log's); an unresolvable bare name stays a candidate.
+            # consumer's own wrapper, not logkit's); an unresolvable bare name stays a candidate.
             if "Public object was removed" in f.message:
                 d0 = _dotted(ref_node)
                 if d0 and "." not in d0 and own_module != f.module and (d0 in local_assigned or d0 in local_classes or d0 in local_defs):
@@ -409,7 +428,7 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
 
         def shadowed(node, name: str) -> bool:
             """Is `name` bound by an enclosing function of `node` (`async with AsyncClient() as client: client.send()`
-            is not the removed module-level `client`, 2026-09-29)?"""
+            is not the removed module-level `client`)?"""
             p = parents.get(node)
             while p is not None:
                 if isinstance(p, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -447,11 +466,13 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
                 cls = enclosing_class(node)
                 if cls is None:
                     return False
+                if cls.name != cls_name and f.object_name.split(".")[-1] in class_members(cls):
+                    return False      # a subclass that defines the member itself (huggingface_hub 3b306043 moved fields down)
                 return cls.name == cls_name or any((_dotted(b) or "").split(".")[-1] == cls_name for b in cls.bases)
             # a receiver imported from outside the library is the consumer's own object, not the finding's
-            # class: `settings.packaging_url` with `from shop_engine.config import settings` while the
-            # removed member lives on shop_api.config.ApiSettings (live PR, 2026-09-29; the model said
-            # reach 0.79-0.87 on those three spans, so this cannot be left to it)
+            # class: `settings.url` with `from app.config import settings` while the removed member lives on
+            # `lib.config.Settings`. The evidence shown to the model does not include the import, so this
+            # cannot be left to it
             d = _dotted(node.value)
             if d:
                 resolved = resolve(d, imports, exports)
@@ -460,7 +481,7 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
                 if resolved != d and not resolved.startswith(package + "."):
                     return False
                 # the receiver resolves to a named object of the library that is NOT the finding's class:
-                # `LlmPlan.rpm_limit` (an ORM column) is not `CustomerInfo.rpm_limit` (live PR #322, 2026-09-30)
+                # `Plan.limit` (another class's column) is not the removed `Customer.limit`
                 head = d.split(".")[0]
                 if head in imports and resolved != f.module + "." + cls_name and resolved.split(".")[-1] != cls_name \
                         and resolved.split(".")[-1][:1].isupper():
@@ -490,6 +511,12 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
             # the changed module itself: a reference to a removed module-level object resolves; a same-named MEMBER does not
             # (pydantic/types.py defines many `decode`/`encode`/`__hash__` on other classes, 2026-10-01)
             res = (bool(dt) and head_imported and (rt == package or rt.startswith(package + "."))) or (own_module == finding.module and "." not in finding.object_name)
+            # a removed MEMBER (`Class.get`) reached through a non-self receiver is the class's member only when the receiver
+            # IS the class: `_cv_app.get(None)` resolves into the library (a ContextVar) and is no use of SecureCookieSession.get
+            # (Flask daca74d9: 18 verified matches of every `.get(`). Anything else is for the model or a person.
+            if "Public object was removed" in finding.message and "." in finding.object_name:
+                cls_ = finding.object_name.split(".")[-2]
+                res = bool(recv) and recv != "self" and resolve(recv, imports, exports) == f"{finding.module}.{cls_}"
             spans.append(Span(rel, node.lineno, "\n".join(lines[node.lineno - 1:end]),
                               "\n".join(lines[max(0, node.lineno - 1 - context_lines):end]), finding,
                               recv, alias, amb, res))
@@ -497,7 +524,7 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module is not None:
                 # `from pkg.mod import Obj` where Obj was removed from pkg.mod: this line raises first, before any
-                # use runs (executed truth 2026-09-30: the only raising frame cie had not flagged was such a line)
+                # use runs (in executed-truth runs it is the frame that fails)
                 mod = _abs_module(node, own_module, rel.endswith("__init__.py"))
                 for al in node.names:
                     for f in by_name.get(al.name, []):
@@ -505,7 +532,6 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
                             add(node, f)
             if isinstance(node, (ast.Import, ast.ImportFrom)) and removed_modules:
                 # `pkg.mod.<module>: Public object was removed` — every import of that module fails at import time
-                # (warehouse_common was deleted in a query migration, 23 changed lines never surfaced, 2026-09-30)
                 if isinstance(node, ast.ImportFrom):
                     mod = _abs_module(node, own_module, rel.endswith("__init__.py"))
                     hits = [f for f in removed_modules if mod == f.module or any(f"{mod}.{a.name}" == f.module for a in node.names)]
@@ -520,14 +546,22 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
                         f = pick(by_param[kw.arg], node, imports, rel_names, local_classes, local_defs)
                         if f is not None:
                             add(node, f)
+                            parts_ = f.object_name.split(".")
+                            if _callee(node) not in {parts_[0], parts_[-1]} and spans and spans[-1].line == node.lineno \
+                                    and spans[-1].finding is f:
+                                # an unresolved callee of another name (`plot(..., kind=kind)` vs WrappedCythonOp(kind=),
+                                # pandas 1a561f8f): it may be a wrapper, so it stays a candidate — but the evidence cannot
+                                # show what it calls, so a model 'breaks' is capped to review
+                                import dataclasses
+                                spans[-1] = dataclasses.replace(spans[-1], ambiguous=True)
                 # positional moves: only calls that pass positional arguments can break; keyword-only
                 # calls are safe by construction. New required parameters / removed objects: any call.
                 # ponytail: griffe's oneline output does not give the moved parameter's index, so any
                 # call with >=2 positional args is a candidate; parse `-f verbose` for the index later.
                 name, alias = _callee(node), ""
                 if name not in by_name and name not in by_name_rp:
-                    # aliased import: `from obs_log import start_span as _obs_start_span` — the real
-                    # consumer call sites in batch-svc were invisible until this (2026-09-27)
+                    # aliased import: `from lib import start_span as _start_span` — the consumer's call sites use
+                    # the alias, not the library's name
                     d = _dotted(node.func)
                     resolved = resolve(d, imports, exports) if d else ""
                     if resolved.startswith(package + ".") and (resolved.split(".")[-1] in by_name or resolved.split(".")[-1] in by_name_rp):
@@ -537,12 +571,15 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
                     if ("Positional parameter was moved" not in f.message or len(node.args) >= 1) and obj_ok(node.func, f):
                         add(node, f, alias)
                 if name in by_name_rp and len(node.args) >= 1:
-                    # a removed parameter passed positionally: `load_adaptor_api_spec("eiap", "r1")` after
-                    # `interface_mode` went (2026-09-29). The keyword path above cannot see it.
+                    # a removed parameter passed positionally: `load_spec("x", "r1")` after its second parameter
+                    # was removed. The keyword path above cannot see it.
                     for f in by_name_rp[name]:
                         if obj_ok(node.func, f):
                             add(node, f, alias)
-            elif isinstance(node, ast.Attribute) and node.attr in by_name:
+            elif isinstance(node, ast.Attribute) and node.attr in by_name and not (
+                    isinstance(node.ctx, ast.Store) and not isinstance(parents.get(node), ast.AugAssign)):
+                # `self.name = ...` writes the attribute (huggingface_hub ffc07b64: a class's own __init__ was matched as
+                # uses of its removed fields); `self.n += 1` reads it first and stays a use
                 f = by_name[node.attr][0]
                 is_member = "." in f.object_name and "Public object was removed" in f.message
                 if (member_ok(node, f) if is_member else obj_ok(node, f)):
@@ -555,6 +592,10 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in by_name and receiver_of(node) \
                     and any("." in f.object_name for f in by_name[node.name]):
                 # a method override on a class (bases known); a module-level def with the same name is the
-                # consumer's own function (batch-svc's start_span wrapper), not a use of the library's
-                add(node, pick_by_receiver([f for f in by_name[node.name] if "." in f.object_name], receiver_of(node)))
+                # consumer's own function (its own wrapper of the same name), not a use of the library's
+                fsig = [f for f in by_name[node.name] if "." in f.object_name and "Public object was removed" not in f.message]
+                if fsig:
+                    # an override matters for a SIGNATURE change; a def named like a removed member is that class's own
+                    # method, not a use of the removed one (werkzeug mixins `def popitem`, 2026-10-08)
+                    add(node, pick_by_receiver(fsig, receiver_of(node)))
     return spans

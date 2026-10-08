@@ -14,6 +14,8 @@ from __future__ import annotations
 import collections, json, os, pathlib, re, subprocess, sys, tempfile
 
 MARK = "<!-- cie:pr-check -->"
+# a settings module: config/settings in the file name OR any directory of the path (Prefect: settings/models/root.py)
+SETTINGS_PATH = re.compile(r"(^|/)(\w*(config|settings)\w*\.py|\w*(config|settings)\w*/.+\.py)$")
 
 
 def sh(*a, cwd=None, check=False):
@@ -28,20 +30,24 @@ def git(repo, *a):
 
 
 def packages(repo, base, head):
-    """(search, package) for every Python package the PR touched (tests excluded), any layout."""
-    tree = set(git(repo, "ls-tree", "-r", "--name-only", head).splitlines())
+    """(search, package) for every Python package the PR touched (tests excluded), any layout: a changed .py/.pyi
+    belongs to the TOP-most chain of directories that each hold an __init__ — `src/click`, `libs/mylib/src/mylib`,
+    `pydantic-core/python/pydantic_core` (pydantic #12924's stub change was missed by a two-levels-deep scan)."""
+    tree = set(git(repo, "ls-tree", "-r", "--name-only", head).splitlines()) | \
+           set(git(repo, "ls-tree", "-r", "--name-only", base).splitlines())       # a deleted module's package too
+    has_init = lambda p: any("/".join(p + [n]) in tree for n in ("__init__.py", "__init__.pyi"))
     out = set()
     for f in git(repo, "diff", "--name-only", base, head).splitlines():
-        if not f.endswith(".py") or re.search(r"(^|/)tests?/", f):
+        if not f.endswith((".py", ".pyi")) or re.search(r"(^|/)tests?/", f):
             continue
-        parts = f.split("/")
-        m = re.match(r"(.*/src|src)/([A-Za-z_]\w*)/", f)
-        if m:
-            out.add((m.group(1), m.group(2))); continue
-        for i in range(min(2, len(parts) - 1)):
-            search, pkg = "/".join(parts[:i]), parts[i]
-            if pkg.isidentifier() and "/".join(parts[:i + 1] + ["__init__.py"]) in tree:
-                out.add((search, pkg)); break
+        parts = f.split("/")[:-1]
+        if not parts or not has_init(parts):
+            continue                                   # a script or a namespace directory: no package to diff
+        i = len(parts)
+        while i > 1 and has_init(parts[:i - 1]) and parts[i - 2].isidentifier():
+            i -= 1
+        if parts[i - 1].isidentifier():
+            out.add(("/".join(parts[:i - 1]), parts[i - 1]))
     return sorted(out)
 
 
@@ -177,22 +183,22 @@ def run(a):
     ch = est.get("charts")
     if ch:
         hrepo = repos[ch["repo"]]; git(hrepo["path"], "fetch", "-q", "origin", hrepo["default"])
-        hroot = archive(hrepo["path"], f"origin/{hrepo['default']}", "helm"); tmpdirs.append(hroot)
+        hroot = archive(hrepo["path"], f"origin/{hrepo['default']}", ch.get("root", "charts")); tmpdirs.append(hroot)   # "root": where the charts live
         for app, spec in ch["apps"].items():
-            touched_code = spec["code_repo"] == a.repo and any(f.startswith(spec["code_sub"]) for f in files) and any(re.search(r"(config|settings)\w*\.py$", f) for f in files)
+            touched_code = spec["code_repo"] == a.repo and any(f.startswith(spec["code_sub"]) for f in files) and any(SETTINGS_PATH.search(f) for f in files)
             touched_chart = ch["repo"] == a.repo and any(f.startswith(spec["chart"]) for f in files)
             if not (touched_code or touched_chart):
                 continue
             covered |= {f for f in files if f.startswith(spec["chart"])}
             code = os.path.join(own_root if spec["code_repo"] == a.repo else archive(repos[spec["code_repo"]]["path"], f"origin/{repos[spec['code_repo']]['default']}"), spec["code_sub"])
             chart = os.path.join(own_root if touched_chart else hroot, spec["chart"])
-            values = spec.get("values", ["values-stage.yaml", "values-common.yaml"])     # public charts ship one values.yaml
+            values = spec.get("values", ["values.yaml"])          # a chart's values files; an environment overlay can be listed too
             text = sh(cie, "config-contract", "--code", code, "--chart", *[f"{chart}/{v}" for v in values], f"{chart}/templates")
             req = re.search(r"REQUIRED by code \(no default\), not set by chart \((\d+)\): ?(.*)", text)
             unread = re.search(r"set by chart, read nowhere \((\d+)\)", text)
             nreq = int(req.group(1)) if req else 0
             res = (f"❌ {nreq} required key{'s' if nreq > 1 else ''} the chart never sets: `{req.group(2).strip()}`" if nreq else "✅ every required key is set") + (f"; {unread.group(1)} chart key{'s' if unread.group(1) != '1' else ''} nothing reads" if unread and unread.group(1) != "0" else "")
-            checks.append((f"env keys `{app}` reads (settings + os.getenv)", f"its chart `{spec['chart']}` (stage values)", res))
+            checks.append((f"env keys `{app}` reads (settings + os.getenv)", f"its chart `{spec['chart']}`", res))
     # 5. settings defaults: a new env-backed setting, or a changed default, changes behaviour for every deployment
     #    that does not set the key (a 900 s statement timeout added with a default killed a 25-minute procedure, 2026-09)
     from .config_contract import collect_helpers, settings_defaults
@@ -203,7 +209,7 @@ def run(a):
         if parts[0].startswith("R") and len(parts) == 3:
             renamed[parts[2]] = parts[1]
     for f in files:
-        if not f.endswith(".py") or not re.search(r"(config|settings)\w*\.py$", f) or re.search(r"(^|/)tests?/", f):
+        if not f.endswith(".py") or not SETTINGS_PATH.search(f) or re.search(r"(^|/)tests?/", f):
             continue
         old_src = git(R, "show", f"{base}:{renamed.get(f, f)}"); new_src = git(R, "show", f"{head}:{f}")
         if "BaseSettings" not in new_src and "BaseSettings" not in old_src:
@@ -222,7 +228,7 @@ def run(a):
                     continue
                 chart = os.path.join(hroot, spec["chart"])
                 txt = ""
-                for cf in [f"{chart}/{v}" for v in spec.get("values", ["values-stage.yaml", "values-common.yaml"])]:
+                for cf in [f"{chart}/{v}" for v in spec.get("values", ["values.yaml"])]:
                     txt += open(cf).read() if os.path.exists(cf) else ""
                 for tf in pathlib.Path(chart, "templates").glob("*.y*ml") if os.path.isdir(os.path.join(chart, "templates")) else []:
                     txt += tf.read_text(errors="replace")

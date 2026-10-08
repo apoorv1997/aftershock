@@ -48,8 +48,8 @@ def span_touched(ranges, gone, sub, s):
 
 def binding_lines(root, s):
     """Lines of the import statements in the span's file that bind the referenced name: a removed object is
-    often repaired at its import (`from shop_api.utils.middleware import X` -> `from obs_log import X`)
-    while the use line stays as it was (2026-09-29)."""
+    often repaired at its import (`from app.utils.middleware import X` -> `from logkit import X`)
+    while the use line stays as it was."""
     import ast as _ast
     try:
         tree = _ast.parse((pathlib.Path(root) / s.file).read_text(errors="replace"))

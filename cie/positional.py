@@ -3,7 +3,7 @@
 griffe reports `f(param): Positional parameter was moved`. Whether a consumer breaks depends only on
 how many positional arguments it passes and where each lands in the old vs new signature — which
 is a signature diff, not a judgment. Calibration on click showed the model answering the wrong
-question here (2026-09-27), so this path never calls it."""
+question here, so this path never calls it."""
 from __future__ import annotations
 
 import ast
@@ -23,56 +23,61 @@ def parse_stmt(code: str) -> ast.AST | None:
     return None
 
 
-def positional_params(lib_root: str, ref: str, path: str, object_name: str) -> list[str] | None:
-    """Names of the parameters accepted positionally (excluding self) by `object_name` at `ref`."""
+def _is_overload(fn) -> bool:
+    return any((d.attr if isinstance(d, ast.Attribute) else getattr(d, "id", "")) == "overload" for d in fn.decorator_list)
+
+
+def find_def(tree, object_name: str):
+    """The IMPLEMENTATION of `f` / `Class.method`: `@overload` stubs are skipped — click's progressbar gained a
+    keyword-only overload ahead of its implementation and the stub was read as the signature (2026-10-07). With only
+    stubs (a .pyi), the last one."""
+    parts = object_name.split(".")
+    if len(parts) == 2:
+        bodies = [n.body for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == parts[0]]
+        name = parts[1]
+    elif len(parts) == 1:
+        def scope(stmts):                      # module scope, through if / try / with blocks (version guards)
+            out = [stmts]
+            for n in stmts:
+                for fld in ("body", "orelse", "finalbody"):
+                    if isinstance(n, (ast.If, ast.Try, ast.With)) and getattr(n, fld, None):
+                        out += scope(getattr(n, fld))
+                for h in getattr(n, "handlers", []) or []:
+                    out += scope(h.body)
+            return out
+        bodies, name = scope(tree.body), parts[0]
+    else:
+        return None
+    defs = [fn for body in bodies for fn in body if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and fn.name == name]
+    impl = [fn for fn in defs if not _is_overload(fn)]
+    return (impl or defs or [None])[-1]
+
+
+def _def_at(lib_root: str, ref: str, path: str, object_name: str):
     src = subprocess.run(["git", "-C", lib_root, "show", f"{ref}:{path}"], capture_output=True, text=True).stdout
     if not src:
         return None
     try:
-        tree = ast.parse(src)
+        return find_def(ast.parse(src), object_name)
     except SyntaxError:
         return None
-    parts = object_name.split(".")
 
-    def params(fn):
-        return [a.arg for a in fn.args.posonlyargs + fn.args.args if a.arg != "self"]
 
-    for node in ast.walk(tree):
-        if len(parts) == 2 and isinstance(node, ast.ClassDef) and node.name == parts[0]:
-            for fn in node.body:
-                if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and fn.name == parts[1]:
-                    return params(fn)
-        elif len(parts) == 1 and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == parts[0]:
-            return params(node)
-    return None
+def positional_params(lib_root: str, ref: str, path: str, object_name: str) -> list[str] | None:
+    """Names of the parameters accepted positionally (excluding self) by `object_name` at `ref`."""
+    fn = _def_at(lib_root, ref, path, object_name)
+    return None if fn is None else [a.arg for a in fn.args.posonlyargs + fn.args.args if a.arg != "self"]
 
 
 def required_params(lib_root: str, ref: str, path: str, object_name: str) -> list[str] | None:
     """Names of the parameters WITHOUT defaults (excluding self) of `object_name` at `ref`."""
-    src = subprocess.run(["git", "-C", lib_root, "show", f"{ref}:{path}"], capture_output=True, text=True).stdout
-    if not src:
+    fn = _def_at(lib_root, ref, path, object_name)
+    if fn is None:
         return None
-    try:
-        tree = ast.parse(src)
-    except SyntaxError:
-        return None
-    parts = object_name.split(".")
-
-    def req(fn):
-        pos = [a.arg for a in fn.args.posonlyargs + fn.args.args if a.arg != "self"]
-        n_def = len(fn.args.defaults)
-        r = pos[: len(pos) - n_def] if n_def else pos
-        r += [a.arg for a, d in zip(fn.args.kwonlyargs, fn.args.kw_defaults) if d is None]
-        return r
-
-    for node in ast.walk(tree):
-        if len(parts) == 2 and isinstance(node, ast.ClassDef) and node.name == parts[0]:
-            for fn in node.body:
-                if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) and fn.name == parts[1]:
-                    return req(fn)
-        elif len(parts) == 1 and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == parts[0]:
-            return req(node)
-    return None
+    pos = [a.arg for a in fn.args.posonlyargs + fn.args.args if a.arg != "self"]
+    n_def = len(fn.args.defaults)
+    r = pos[: len(pos) - n_def] if n_def else pos
+    return r + [a.arg for a, d in zip(fn.args.kwonlyargs, fn.args.kw_defaults) if d is None]
 
 
 def added_required_breaks(code: str, finding: Finding, receiver: str = "", alias: str = "",
@@ -117,8 +122,8 @@ def removed_param_breaks(code: str, finding: Finding, alias: str = "", lib_root:
                          old_ref: str | None = None) -> bool | None:
     """`f(param): Parameter was removed`, on a call whose callee resolved to the library object. Breaks if
     the call passes the parameter by keyword or positionally — its index in the OLD signature within the
-    positional arguments (`load_adaptor_api_spec("eiap", "r1")` after `interface_mode` went, a live
-    miss on 2026-09-29: keyword-only matching never saw it). Passing neither: compatible. *args/**kwargs or
+    positional arguments (`load_spec("x", "r1")` after its second parameter was removed: keyword-only matching
+    never sees it). Passing neither: compatible. *args/**kwargs or
     an unknown old signature: None, the model judges."""
     node = parse_stmt(code)
     if node is None:
@@ -145,8 +150,8 @@ def removed_param_breaks(code: str, finding: Finding, alias: str = "", lib_root:
 
 def kind_changed_breaks(code: str, finding: Finding, alias: str = "") -> bool | None:
     """`f(param): Parameter kind was changed: positional or keyword -> positional-only` (or -> keyword-only).
-    A call breaks if it passes the parameter in the form the new kind forbids. Found live on obs-log
-    (start_span/enter_worker_span became positional-only between batch-svc's pin and HEAD, 2026-09-27)."""
+    A call breaks if it passes the parameter in the form the new kind forbids (`f(name=x)` once `name` is
+    positional-only)."""
     node = parse_stmt(code)
     if node is None:
         return None

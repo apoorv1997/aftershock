@@ -33,7 +33,9 @@ def main():
                 continue
             # POSIX ERE (git grep -E): no \s, no \b
             hits = git(r["path"], "grep", "-lE", rf"^[[:space:]]*(from|import)[[:space:]]+{pkg}([[:space:]]|\.|$)", f"origin/{r['default']}", "--", "*.py").splitlines()
-            hits = [h for h in hits if not re.search(r"(^|/)tests?/|/test_|^origin/[^:]+:" + re.escape(search) + "/", h)]
+            # tests never count; the library's OWN package dir only in its own repo (every public repo has a src/)
+            hits = [h for h in hits if not re.search(r"(^|/)tests?/|/test_", h)
+                    and not (name == lib_repo and re.search(r"^origin/[^:]+:" + re.escape(f"{search}/{pkg}/" if search else f"{pkg}/"), h))]
             # manifest "consumer_ignore": directory names whose imports are examples or tooling, not consumers (public repos: docs_src, scripts)
             ign = est.get("consumer_ignore", [])
             hits = [h for h in hits if not any(f"/{d}/" in "/" + h.split(":", 1)[1] for d in ign)]

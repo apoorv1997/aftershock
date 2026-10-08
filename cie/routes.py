@@ -85,8 +85,8 @@ def _includes_in(src: str, file: str) -> list[tuple[str, str]]:
 
 
 def _factory_aliases(src: str, file: str) -> dict[tuple[str, str], str]:
-    """(module, name) -> module of the factory that built it: `router = create_speech_router(...)` with
-    `from speechkit.fastapi import create_speech_router` means the routes live in speechkit.fastapi."""
+    """(module, name) -> module of the factory that built it: `router = create_voice_router(...)` with
+    `from voicekit.fastapi import create_voice_router` means the routes live in voicekit.fastapi."""
     from .reach import _import_map, module_of
     try:
         tree = ast.parse(src)
@@ -123,7 +123,7 @@ def collect(lib_root: str, ref: str, search: str = "", package: str = "") -> tup
 
 def estate_routes(specs: list[tuple[str, str]]) -> list[Route]:
     """Routes of several repositories with mounts resolved across them: a library router defined in one
-    repository (a shared speech router) mounted with a prefix by a service in another (a chat service)."""
+    repository (a shared voice router) mounted with a prefix by a service in another (a chat service)."""
     out, mounts = [], {"includes": [], "aliases": {}}
     for lib_root, ref in specs:
         r, m = collect(lib_root, ref)
@@ -154,11 +154,11 @@ def apply_prefixes(out: list[Route], mounts: dict) -> list[Route]:
 
     def full_prefixes(module: str, depth: int = 0) -> list[str]:
         """Every mount chain of a router module: a library router mounted by two services answers at two
-        paths (`/api/speech/token` in one app, `/v1/speech/token` in another, 2026-09-30)."""
+        paths (`/api/voice/token` in one app, `/v1/voice/token` in another)."""
         if depth > 3:
             return [""]
         key = module if module in includes else next(iter(sorted((k for k in includes if "." in k and same(k, module)), key=len, reverse=True)), None)
-        if key is None:                  # never a bare top-level name (`fastapi` matched `speechkit.fastapi`)
+        if key is None:                  # never a bare top-level name (`fastapi` matched `voicekit.fastapi`)
             return [""]
         out_ = []
         for prefix, parent in includes[key]:
@@ -170,7 +170,7 @@ def apply_prefixes(out: list[Route], mounts: dict) -> list[Route]:
 def diff(old: list[Route], new: list[Route], surviving: list[Route] | None = None) -> dict[str, list]:
     """Removed = an old (method, path) with no new route of that method whose path equals it or ends with it —
     a route that only moved under a mount prefix still answers a consumer that prepends its own base
-    (`/code-audit/static/latest` became `/api/code-audit/static/latest`, 2026-09-30). `surviving` adds routes
+    (`/reports/latest` became `/api/reports/latest`). `surviving` adds routes
     from other services of the estate: a route that moved to another repo is not gone either."""
     o = {r.key: r for r in old}; n = {r.key: r for r in new}
     alive = [r for r in new] + list(surviving or [])
@@ -191,12 +191,12 @@ def matchable(path: str) -> bool:
     return path.count("/") >= 2
 
 
-_MAP_ENTRY = re.compile(r"^\s*([A-Za-z_]\w*)\s*:\s*['\"`]")   # `authToken: "/auth/token",` inside an endpoint map
+_MAP_ENTRY = re.compile(r"^\s*([A-Za-z_]\w*)\s*:\s*['\"`]")   # `signIn: "/auth/login",` inside an endpoint map
 
 
 def _referenced_elsewhere(root: pathlib.Path, key: str, own: pathlib.Path, exts) -> bool:
     """Does `key` appear anywhere in the tree other than its own definition line? A map entry nothing names
-    is a stale constant, not a call (a UI kept `authToken: "/auth/token"` after the route left, 2026-09-30)."""
+    is a stale constant, not a call (a UI map keeps `signIn: "/auth/login"` after the route is gone)."""
     pat = re.compile(rf"\b{re.escape(key)}\b")
     for f in root.rglob("*"):
         if f.suffix not in exts or not f.is_file() or any(x in f.parts for x in ("node_modules", ".git", "dist", "build")):

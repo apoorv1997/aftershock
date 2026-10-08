@@ -37,7 +37,7 @@ cie api-impact ... --no-tests --format md --json out.json          # production 
 cie named-queries --lib ../data-service --src app/queries --old <ref> --new <ref> --consumer ../reporting --no-tests
 
 # env keys the code reads (os.getenv and pydantic Settings: env_prefix, aliases, required vs defaulted) vs keys the chart sets; no model
-cie config-contract --code ./service --chart ./helm/apps/service/values-stage.yaml ./helm/apps/service/templates
+cie config-contract --code ./service --chart ./charts/service/values.yaml ./charts/service/templates
 
 # HTTP routes a Python service exposes (FastAPI decorators + include_router prefixes), old vs new, against URL
 # literals in ANY consumer — a TypeScript UI included; no model. A route that only moved under a mount prefix or
@@ -85,25 +85,13 @@ Default-value changes are reported once, in aggregate, never per call.
   the break claim scored 23/23 on click 8.2 cases.
 - Calibration on 48 rule-labelled spans (`spike/CALIBRATION.md`): with the call statement in the
   evidence the reach answer is bimodal and 48/48 at 0.5; with a single evidence line each tail picks
-  up ~1 error in 40. Re-calibrated on 92 pooled spans (public + a private repository-history
+  up ~1 error in 40. Re-calibrated on 92 spans (these 48 plus 44 from an unpublished repository-history
   benchmark): thresholds reach ≥0.7 / ≤0.4, break confidence ≥0.8.
 - A planted misleading comment never flipped a verdict but halved the high-confidence ones, so
   comments are stripped from evidence by default.
-- On a real 14-object refactor with the PR's own diff as ground truth: 200/200 verified consequences
-  were lines the PR changed (precision 100%), 201/210 references surfaced (recall 96%), 90% decided by
-  rule, model cost $0.0007.
 - Cross-repo (GitHub code search, first 100 hits per query): 30 hand-checked hits, 18/19 real on true
   consumers; the misses were vendored copies of the library and a same-library look-alike, both now
   excluded deterministically.
-- Estate-wide, on seven private repositories and their whole history (44 packages, 826 candidate spans,
-  409 breaker/fixer PR pairs): on ordinary commits 149 verified consequences, 149 true, 0 false, 2 changed
-  lines never surfaced; 73% of spans decided by rule. Against the PR pairs, 685 verified consequences at 99%
-  precision versus 39% for a name grep; the three predicted escapes were followed forward in history — one
-  fixed by a targeted PR 28 days later, one 38 days later, one a griffe artefact. Twenty-two look-alike and
-  recall classes surfaced by this data are each decided by rule now (`spike/CALIBRATION.md`).
-- Across a language boundary: 202 HTTP routes left that estate's Python services since July; the TypeScript
-  UI names none of them at HEAD (`cie routes`). Across eight deployed charts, no required env key is missing
-  (`cie config-contract`).
 
 Known limits: receivers of unknown type (`x.method(...)`) are matched by method name and land in
 review — and when the consumer defines a same-named member on one of its own classes, a model "breaks"

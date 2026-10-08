@@ -10,7 +10,10 @@ import os
 import sys
 from dataclasses import dataclass
 
-from typesafe_sdk import Choice, Noul, TypeSafeClient
+from typesafe_sdk import (Choice, Noul, TypeSafeAPIConnectionError, TypeSafeAPITimeoutError, TypeSafeClient,
+                          TypeSafeInternalServerError, TypeSafeRateLimitError)
+
+TRANSIENT = (TypeSafeAPIConnectionError, TypeSafeAPITimeoutError, TypeSafeRateLimitError, TypeSafeInternalServerError)
 
 REACH_Q = ("Does `consumer.code` use `change.changed_object` of the library `change.library` as described in "
            "`change.finding` — for a parameter, passing exactly that keyword to that object (also via **kwargs, partial, "
@@ -30,9 +33,9 @@ BREAK_CRITERIA = {
     "unclear": "the evidence does not show how the consumer uses the changed API",
 }
 
-# Calibrated 2026-09-27 on 48 rule-labelled public spans (httpx 0.28, click 8.2) and re-calibrated
-# 2026-09-29 with 44 more from a private repository-history benchmark (truth = the commit's own diff),
-# spike/CALIBRATION.md. Pooled, plain evidence, 92 model-judged spans: reach >= 0.7 was 64/64 truly
+# Calibrated on 48 rule-labelled public spans (httpx 0.28, click 8.2) and re-calibrated with 44 more from
+# an unpublished repository-history benchmark (truth = the commit's own diff); re-checked on seven public
+# libraries' histories, spike/CALIBRATION.md. Pooled, plain evidence, 92 model-judged spans: reach >= 0.7 was 64/64 truly
 # reached, [0.4,0.6) 1/2, < 0.4 0/26. Break: every truly-reached span answered at confidence >= 0.9.
 # 0.7 rather than 0.6 because the [0.6,0.7) band has no observations yet; 0.4 rather than 0.5 because
 # a false "not reached" is a silent miss while a false review item is only a cost.
@@ -83,15 +86,25 @@ def verify(states: list[dict], client: TypeSafeClient | None = None, budget=None
     own = client is None
     client = client or TypeSafeClient()
     out = []
+    failed = streak = 0
     try:
         for st in states:
             if budget is not None and not budget.allow():
                 out.append(SKIPPED)
                 continue
-            r = client.system_one(state=st, questions={
-                "reach": Noul(instructions=REACH_Q),
-                "break": Choice(instructions=BREAK_Q, criteria=BREAK_CRITERIA),
-            })
+            if streak >= 3:                  # the service is unreachable: stop calling, leave the rest for review
+                out.append(SKIPPED); failed += 1
+                continue
+            try:
+                r = client.system_one(state=st, questions={
+                    "reach": Noul(instructions=REACH_Q),
+                    "break": Choice(instructions=BREAK_Q, criteria=BREAK_CRITERIA),
+                })
+            except TRANSIENT as e:           # a dropped connection is not a verdict: review, exactly like the budget cap
+                out.append(SKIPPED); failed += 1; streak += 1
+                last = e
+                continue
+            streak = 0
             if budget is not None:
                 budget.record(r.usage.input_tokens)
             b = r.answers["break"]
@@ -99,4 +112,6 @@ def verify(states: list[dict], client: TypeSafeClient | None = None, budget=None
     finally:
         if own:
             client.close()
+    if failed:
+        print(f"cie: {failed} model call(s) failed ({type(last).__name__}) — those spans are left for review", file=sys.stderr)
     return out

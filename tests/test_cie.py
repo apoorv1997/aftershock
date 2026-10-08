@@ -105,7 +105,7 @@ def test_vendored_copy_and_same_library_lookalike_are_not_candidates(tmp_path: p
 
 def test_kind_changed_to_positional_only_breaks_keyword_callers():
     from cie import positional
-    f = contracts.parse_oneline("python/obs-log/src/obs_log/tracing.py:106: start_span(name): "
+    f = contracts.parse_oneline("python/log-kit/src/logkit/tracing.py:106: start_span(name): "
                                 "Parameter kind was changed: positional or keyword -> positional-only")[0]
     assert positional.kind_changed_breaks('with start_span(name="build"):\n    pass', f) is True
     assert positional.kind_changed_breaks('with start_span("build"):\n    pass', f) is False
@@ -114,13 +114,13 @@ def test_kind_changed_to_positional_only_breaks_keyword_callers():
 
 def test_aliased_import_call_is_a_candidate_and_wrapper_def_is_not(tmp_path: pathlib.Path):
     (tmp_path / "logging_config.py").write_text(textwrap.dedent("""
-        from obs_log import start_span as _obs_start_span
+        from logkit import start_span as _lk_start_span
 
         def start_span(name, **tags):          # the consumer's own wrapper: not a use of the library
-            return _obs_start_span(name, **tags)
+            return _lk_start_span(name, **tags)
     """))
     (tmp_path / "pipeline.py").write_text("from logging_config import start_span\nwith start_span(name='x'):\n    pass\n")
-    f = contracts.parse_oneline("python/obs-log/src/obs_log/tracing.py:106: start_span(name): "
+    f = contracts.parse_oneline("python/log-kit/src/logkit/tracing.py:106: start_span(name): "
                                 "Parameter kind was changed: positional or keyword -> positional-only")
     spans = reach.candidates(tmp_path, f)
     assert [(s.file, s.line) for s in spans] == [("logging_config.py", 5)]
@@ -129,16 +129,16 @@ def test_aliased_import_call_is_a_candidate_and_wrapper_def_is_not(tmp_path: pat
 def test_removed_member_matches_self_inside_class_and_unknown_receivers(tmp_path: pathlib.Path):
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / "fetcher.py").write_text(textwrap.dedent("""
-        class DataFetcher:
+        class Loader:
             def run(self):
-                return self.complete_daily_metrics      # inside the class: candidate, decided by rule
+                return self.load_daily      # inside the class: candidate, decided by rule
         class Other:
             def run(self):
-                return self.complete_daily_metrics      # a different class's own attribute: not a candidate
+                return self.load_daily      # a different class's own attribute: not a candidate
         def use(f):
-            return f.complete_daily_metrics             # unknown receiver: candidate for the model
+            return f.load_daily             # unknown receiver: candidate for the model
     """))
-    f = contracts.parse_oneline("batch-svc/data/fetcher.py:0: DataFetcher.complete_daily_metrics: Public object was removed")
+    f = contracts.parse_oneline("job-runner/data/fetcher.py:0: Loader.load_daily: Public object was removed")
     spans = reach.candidates(tmp_path, f)
     assert sorted((s.line, s.receiver) for s in spans) == [(4, "self"), (9, "f")]
 
@@ -146,12 +146,12 @@ def test_removed_member_matches_self_inside_class_and_unknown_receivers(tmp_path
 def test_named_query_contract_rules(tmp_path: pathlib.Path):
     from cie import named_queries as nq
     old = {"q_orders": nq.QuerySig("q_orders", ("ids_in",), ("limit",)), "q_gone": nq.QuerySig("q_gone", (), ())}
-    new = {"q_orders": nq.QuerySig("q_orders", ("ids_in", "market"), ())}
+    new = {"q_orders": nq.QuerySig("q_orders", ("ids_in", "region"), ())}
     kinds = sorted((c.name, c.kind) for c in nq.diff(old, new))
     assert kinds == [("q_gone", "removed"), ("q_orders", "param_removed"), ("q_orders", "required_added")]
     (tmp_path / "c.py").write_text(textwrap.dedent("""
         r = s.post(query_url("q_orders"), json={"params": {"ids_in": u}})
-        self._fetch_named("q_orders", {"ids_in": u, "market": m}, "t")
+        self._fetch_named("q_orders", {"ids_in": u, "region": m}, "t")
         self._fetch_named("q_orders", build_params(), "t")
         self._fetch_named("q_gone", {}, "t")
     """))
@@ -180,7 +180,7 @@ def test_wrapper_injected_keys_count_as_sent(tmp_path: pathlib.Path):
             body = {"params": clean}
             return await self._post(f"/q/{query_name}", body)
     """))
-    (tmp_path / "sites.py").write_text('rows = await self._named_query("account_calendar", {"account_id": u})\n')
+    (tmp_path / "accounts.py").write_text('rows = await self._named_query("account_calendar", {"account_id": u})\n')
     inj = nq.injected_keys(tmp_path)
     assert "region_groups" in inj and inj["region_groups"].conditional
     old = {"account_calendar": nq.QuerySig("account_calendar", ("account_id",), ())}
@@ -237,10 +237,10 @@ def test_flag_appends_omitted_verified_locations_and_overused_review_items():
 def test_member_receiver_imported_from_another_package_is_not_a_candidate(tmp_path):
     from cie import reach
     from cie.contracts import Finding
-    f = Finding(path="services/shop-api/src/shop_api/config.py", line=1, symbol="ApiSettings.packaging_url",
+    f = Finding(path="services/web-api/src/web_api/config.py", line=1, symbol="ApiSettings.packaging_url",
                 message="Public object was removed")
-    (tmp_path / "own.py").write_text("from shop_engine.config import settings\nurl = settings.packaging_url\n")
-    (tmp_path / "theirs.py").write_text("from shop_api.config import settings\nurl = settings.packaging_url\n")
+    (tmp_path / "own.py").write_text("from web_engine.config import settings\nurl = settings.packaging_url\n")
+    (tmp_path / "theirs.py").write_text("from web_api.config import settings\nurl = settings.packaging_url\n")
     (tmp_path / "bare.py").write_text("url = settings.packaging_url\n")
     got = {s.file for s in reach.candidates(tmp_path, [f])}
     assert got == {"theirs.py", "bare.py"}, got
@@ -263,9 +263,9 @@ def test_module_level_function_through_a_local_receiver_is_not_a_candidate(tmp_p
 def test_relative_imports_resolve_against_the_file_module(tmp_path):
     from cie import reach
     from cie.contracts import Finding
-    f = Finding(path="libs/core/src/pkg/providers/kpi.py", line=0, symbol="DAILY_METRICS", message="Public object was removed")
+    f = Finding(path="libs/core/src/pkg/providers/metrics.py", line=0, symbol="DAILY_METRICS", message="Public object was removed")
     d = tmp_path / "libs/core/src/pkg/providers"; d.mkdir(parents=True)
-    (d / "handlers.py").write_text("from .kpi import DAILY_METRICS\nx = DAILY_METRICS\n")           # the removed object itself
+    (d / "handlers.py").write_text("from .metrics import DAILY_METRICS\nx = DAILY_METRICS\n")           # the removed object itself
     (d / "moved.py").write_text("from .catalog import DAILY_METRICS\nx = DAILY_METRICS\n")         # already imported from its new home
     got = {s.file.split("/")[-1] for s in reach.candidates(tmp_path, [f])}
     assert got == {"handlers.py"}, got
@@ -276,15 +276,15 @@ def test_relative_imports_resolve_against_the_file_module(tmp_path):
 def test_keyword_findings_skip_foreign_callees_local_classes_and_non_wrappers(tmp_path):
     from cie import reach
     from cie.contracts import Finding
-    f = Finding(path="src/pkg/routers/obs.py", line=0, symbol="list_sites(market)", message="Parameter was removed")
-    (tmp_path / "stub.py").write_text("async def go(client):\n    return await client.list_sites(date=d, market=m)\n")
-    (tmp_path / "foreign.py").write_text("from other.protos import obs_pb2 as obs_pb\nreq = obs_pb.ListSitesRequest(market=m)\n")
-    (tmp_path / "localcls.py").write_text("class _Doc:\n    pass\nd = _Doc(market=m)\n")
-    (tmp_path / "nonwrap.py").write_text("def helper(a, *, market):\n    return a\nhelper(1, market=m)\n")
-    (tmp_path / "wrapper.py").write_text("from pkg.routers import obs\ndef helper(**kw):\n    return obs.list_sites(**kw)\nhelper(market=m)\n")
-    (tmp_path / "direct.py").write_text("from pkg.routers.obs import list_sites\nlist_sites(market=m)\n")
-    (tmp_path / "alias.py").write_text("from pkg.routers.obs import list_sites as ls\nls(market=m)\n")
-    (tmp_path / "unknown.py").write_text("mystery(market=m)\n")
+    f = Finding(path="src/pkg/routers/orders.py", line=0, symbol="list_orders(region)", message="Parameter was removed")
+    (tmp_path / "stub.py").write_text("async def go(client):\n    return await client.list_orders(date=d, region=m)\n")
+    (tmp_path / "foreign.py").write_text("from other.protos import api_pb2 as api_pb\nreq = api_pb.ListOrdersRequest(region=m)\n")
+    (tmp_path / "localcls.py").write_text("class _Doc:\n    pass\nd = _Doc(region=m)\n")
+    (tmp_path / "nonwrap.py").write_text("def helper(a, *, region):\n    return a\nhelper(1, region=m)\n")
+    (tmp_path / "wrapper.py").write_text("from pkg.routers import orders\ndef helper(**kw):\n    return orders.list_orders(**kw)\nhelper(region=m)\n")
+    (tmp_path / "direct.py").write_text("from pkg.routers.orders import list_orders\nlist_orders(region=m)\n")
+    (tmp_path / "alias.py").write_text("from pkg.routers.orders import list_orders as ls\nls(region=m)\n")
+    (tmp_path / "unknown.py").write_text("mystery(region=m)\n")
     got = {s.file for s in reach.candidates(tmp_path, [f])}
     assert got == {"wrapper.py", "direct.py", "alias.py", "unknown.py"}, got
 
@@ -292,9 +292,9 @@ def test_keyword_findings_skip_foreign_callees_local_classes_and_non_wrappers(tm
 def test_ambiguous_member_reference_is_capped_to_review(tmp_path):
     from cie import reach, verify
     from cie.contracts import Finding
-    f = Finding(path="libs/r/src/pkg/schema.py", line=0, symbol="ColumnSpec.description", message="Public object was removed")
+    f = Finding(path="libs/r/src/pkg/schema.py", line=0, symbol="FieldSpec.description", message="Public object was removed")
     (tmp_path / "own.py").write_text("class _Doc:\n    description: str = ''\n\ndef f(doc):\n    return doc.description\n")
-    (tmp_path / "lib.py").write_text("from pkg.schema import ColumnSpec\nspec = ColumnSpec()\nprint(spec.description)\n")
+    (tmp_path / "lib.py").write_text("from pkg.schema import FieldSpec\nspec = FieldSpec()\nprint(spec.description)\n")
     spans = {s.file: s for s in reach.candidates(tmp_path, [f])}
     assert spans["own.py"].ambiguous and not spans["lib.py"].ambiguous
     sure = verify.Verdict(0.95, "breaks_consumer", 0.99, {}, 0)
@@ -308,15 +308,15 @@ def test_removed_parameter_passed_positionally_is_a_candidate_and_decided_by_rul
     from cie.contracts import Finding
     lib = tmp_path / "lib"; (lib / "src/pkg").mkdir(parents=True)
     subprocess.run(["git", "init", "-q", str(lib)], check=True)
-    (lib / "src/pkg/kb.py").write_text("def load(usage_mode='eiap', interface_mode=None):\n    return usage_mode\n")
+    (lib / "src/pkg/kb.py").write_text("def load(mode='basic', legacy_mode=None):\n    return mode\n")
     subprocess.run(["git", "-C", str(lib), "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(lib), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "old"], check=True)
-    f = Finding(path="src/pkg/kb.py", line=1, symbol="load(interface_mode)", message="Parameter was removed")
+    f = Finding(path="src/pkg/kb.py", line=1, symbol="load(legacy_mode)", message="Parameter was removed")
     c = tmp_path / "consumer"; c.mkdir()
-    (c / "two.py").write_text("from pkg.kb import load\nX = load('eiap', 'r1')\n")
-    (c / "one.py").write_text("from pkg.kb import load\nX = load('eiap')\n")
-    (c / "kw.py").write_text("from pkg.kb import load\nX = load(interface_mode='r1')\n")
-    (c / "bare.py").write_text("X = load('eiap', 'r1')\n")
+    (c / "two.py").write_text("from pkg.kb import load\nX = load('basic', 'r1')\n")
+    (c / "one.py").write_text("from pkg.kb import load\nX = load('basic')\n")
+    (c / "kw.py").write_text("from pkg.kb import load\nX = load(legacy_mode='r1')\n")
+    (c / "bare.py").write_text("X = load('basic', 'r1')\n")
     spans = {s.file: s for s in reach.candidates(c, [f])}
     assert set(spans) == {"two.py", "one.py", "kw.py", "bare.py"}, set(spans)
     assert spans["two.py"].resolved and not spans["bare.py"].resolved
@@ -327,9 +327,9 @@ def test_removed_parameter_passed_positionally_is_a_candidate_and_decided_by_rul
 def test_same_file_constant_is_not_the_removed_library_object(tmp_path):
     from cie import reach
     from cie.contracts import Finding
-    f = Finding(path="src/shop_api/utils/middleware.py", line=0, symbol="REQUEST_ID_HEADER", message="Public object was removed")
+    f = Finding(path="src/web_api/utils/middleware.py", line=0, symbol="REQUEST_ID_HEADER", message="Public object was removed")
     (tmp_path / "own.py").write_text('REQUEST_ID_HEADER = "X-Request-ID"\nv = headers.get(REQUEST_ID_HEADER)\n')
-    (tmp_path / "theirs.py").write_text("from shop_api.utils.middleware import REQUEST_ID_HEADER\nv = headers.get(REQUEST_ID_HEADER)\n")
+    (tmp_path / "theirs.py").write_text("from web_api.utils.middleware import REQUEST_ID_HEADER\nv = headers.get(REQUEST_ID_HEADER)\n")
     got = {s.file for s in reach.candidates(tmp_path, [f])}
     assert got == {"theirs.py"}, got
 
@@ -337,9 +337,9 @@ def test_same_file_constant_is_not_the_removed_library_object(tmp_path):
 def test_module_of_a_top_level_file_survives_the_prefix_strip():
     from cie import reach
     from cie.contracts import Finding
-    assert Finding(path="batch-svc/main.py", line=0, symbol="run", message="Public object was removed").module == "main"
-    assert Finding(path="python/obs-log/src/obs_log/tracing.py", line=0, symbol="x", message="m").module == "obs_log.tracing"
-    assert reach.module_of("batch-svc/main.py") == "main" and reach.module_of("pkg/__init__.py") == "pkg"
+    assert Finding(path="job-runner/main.py", line=0, symbol="run", message="Public object was removed").module == "main"
+    assert Finding(path="python/log-kit/src/logkit/tracing.py", line=0, symbol="x", message="m").module == "logkit.tracing"
+    assert reach.module_of("job-runner/main.py") == "main" and reach.module_of("pkg/__init__.py") == "pkg"
 
 
 def test_function_scope_binding_shadows_a_removed_module_object(tmp_path):
@@ -357,10 +357,10 @@ def test_function_scope_binding_shadows_a_removed_module_object(tmp_path):
 def test_keyword_on_a_tree_method_that_never_calls_the_library_is_skipped(tmp_path):
     from cie import reach
     from cie.contracts import Finding
-    f = Finding(path="src/gw/routers/obs.py", line=0, symbol="list_sites(limit)", message="Parameter was removed")
+    f = Finding(path="src/gw/routers/orders.py", line=0, symbol="list_orders(limit)", message="Parameter was removed")
     (tmp_path / "base.py").write_text("class Base:\n    async def _neighbors(self, account_id, *, limit):\n        return await self.q(account_id, limit)\n")
     (tmp_path / "use.py").write_text("class A(Base):\n    async def go(self):\n        return await self._neighbors(u, limit=15)\n")
-    (tmp_path / "wrap.py").write_text("from gw.routers import obs\nclass W:\n    def sites(self, **kw):\n        return obs.list_sites(**kw)\n    def go(self):\n        return self.sites(limit=3)\n")
+    (tmp_path / "wrap.py").write_text("from gw.routers import orders\nclass W:\n    def items(self, **kw):\n        return orders.list_orders(**kw)\n    def go(self):\n        return self.sites(limit=3)\n")
     got = {s.file for s in reach.candidates(tmp_path, [f])}
     assert got == {"wrap.py"}, got
 
@@ -413,10 +413,10 @@ def test_tuple_unpacking_and_loop_targets_shadow_a_removed_name(tmp_path):
 def test_importing_a_removed_module_is_a_consequence_decided_by_rule(tmp_path):
     from cie import reach, rules
     from cie.contracts import Finding
-    f = Finding(path="libs/t/src/pkg/providers/warehouse_common.py", line=0, symbol="<module>", message="Public object was removed")
+    f = Finding(path="libs/t/src/pkg/providers/db_common.py", line=0, symbol="<module>", message="Public object was removed")
     (tmp_path / "libs/t/src/pkg/providers").mkdir(parents=True)
-    (tmp_path / "libs/t/src/pkg/providers/handlers.py").write_text("from .warehouse_common import TS_LOCAL\nfrom . import warehouse_common\nfrom .other import X\n")
-    (tmp_path / "use.py").write_text("import pkg.providers.warehouse_common\nfrom pkg.providers.warehouse_common import TS_LOCAL\n")
+    (tmp_path / "libs/t/src/pkg/providers/handlers.py").write_text("from .db_common import TS_FIELD\nfrom . import db_common\nfrom .other import X\n")
+    (tmp_path / "use.py").write_text("import pkg.providers.db_common\nfrom pkg.providers.db_common import TS_FIELD\n")
     spans = sorted((s.file.split("/")[-1], s.line) for s in reach.candidates(tmp_path, [f]))
     assert spans == [("handlers.py", 1), ("handlers.py", 2), ("use.py", 1), ("use.py", 2)], spans
     assert all(rules.decide(s, str(tmp_path), "a", "b") is rules.RULE_BREAK for s in reach.candidates(tmp_path, [f]))
@@ -427,17 +427,17 @@ def test_route_contract_finds_removed_paths_in_a_typescript_consumer(tmp_path):
     from cie import routes
     lib = tmp_path / "lib"; (lib / "svc/routers").mkdir(parents=True)
     subprocess.run(["git", "init", "-q", str(lib)], check=True)
-    (lib / "svc/routers/obs.py").write_text('from fastapi import APIRouter\nrouter = APIRouter(prefix="/v1")\n@router.get("/sites/{site_id}")\nasync def site(site_id: str): ...\n@router.post("/sites")\nasync def create(): ...\n')
+    (lib / "svc/routers/orders.py").write_text('from fastapi import APIRouter\nrouter = APIRouter(prefix="/v1")\n@router.get("/items/{item_id}")\nasync def site(item_id: str): ...\n@router.post("/sites")\nasync def create(): ...\n')
     g = lambda *a: subprocess.run(["git", "-C", str(lib), "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True)
     g("add", "-A"); g("commit", "-q", "-m", "old"); old = subprocess.run(["git", "-C", str(lib), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-    (lib / "svc/routers/obs.py").write_text('from fastapi import APIRouter\nrouter = APIRouter(prefix="/v1")\n@router.get("/site/{site_id}")\nasync def site(site_id: str): ...\n@router.post("/sites")\nasync def create(): ...\n')
+    (lib / "svc/routers/orders.py").write_text('from fastapi import APIRouter\nrouter = APIRouter(prefix="/v1")\n@router.get("/item/{item_id}")\nasync def site(item_id: str): ...\n@router.post("/sites")\nasync def create(): ...\n')
     g("add", "-A"); g("commit", "-q", "-m", "new")
     d = routes.diff(routes.routes(str(lib), old), routes.routes(str(lib), "HEAD"))
-    assert [r.path for r in d["removed"]] == ["/v1/sites/{site_id}"] and [r.path for r in d["added"]] == ["/v1/site/{site_id}"]
+    assert [r.path for r in d["removed"]] == ["/v1/items/{item_id}"] and [r.path for r in d["added"]] == ["/v1/item/{item_id}"]
     ui = tmp_path / "ui/src"; ui.mkdir(parents=True)
-    (ui / "api.ts").write_text("const a = fetch(`/v1/sites/${id}`);\nconst b = fetch('/v1/sites');\nconst c = fetch('/v1/sites/' + id + '/kpis');\n")
-    hits = routes.consumers(tmp_path / "ui", ["/v1/sites/{site_id}"])
-    assert [ln for _, ln, _ in hits["/v1/sites/{site_id}"]] == [1]        # line 3 builds the path from pieces: the documented ceiling
+    (ui / "api.ts").write_text("const a = fetch(`/v1/items/${id}`);\nconst b = fetch('/v1/items');\nconst c = fetch('/v1/items/' + id + '/stats');\n")
+    hits = routes.consumers(tmp_path / "ui", ["/v1/items/{item_id}"])
+    assert [ln for _, ln, _ in hits["/v1/items/{item_id}"]] == [1]        # line 3 builds the path from pieces: the documented ceiling
 
 
 def test_settings_keys_follow_env_prefix_and_aliases():
@@ -469,11 +469,11 @@ def test_route_paths_include_router_prefixes_from_other_files(tmp_path):
     lib = tmp_path / "lib"; (lib / "src/svc/routes").mkdir(parents=True)
     (lib / "src/svc/routes/__init__.py").write_text("")
     (lib / "src/svc/routes/audit.py").write_text('from fastapi import APIRouter\nrouter = APIRouter()\n@router.get("/static/latest")\ndef latest(): ...\n')
-    (lib / "src/svc/api.py").write_text('from fastapi import APIRouter\nfrom routes import audit\napi = APIRouter()\napi.include_router(audit.router, prefix="/code-audit")\n')   # service dir on sys.path
+    (lib / "src/svc/api.py").write_text('from fastapi import APIRouter\nfrom routes import audit\napi = APIRouter()\napi.include_router(audit.router, prefix="/reports")\n')   # service dir on sys.path
     (lib / "src/svc/main.py").write_text('from fastapi import FastAPI\nfrom .api import api\napp = FastAPI()\napp.include_router(api, prefix="/api")\n')
     subprocess.run(["git", "init", "-q", str(lib)], check=True); subprocess.run(["git", "-C", str(lib), "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(lib), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"], check=True)
-    assert [r.path for r in routes.routes(str(lib), "HEAD")] == ["/api/code-audit/static/latest"]
+    assert [r.path for r in routes.routes(str(lib), "HEAD")] == ["/api/reports/static/latest"]
 
 
 def test_estate_routes_resolve_a_mount_across_repositories(tmp_path):
@@ -486,22 +486,22 @@ def test_estate_routes_resolve_a_mount_across_repositories(tmp_path):
         subprocess.run(["git", "init", "-q", str(r)], check=True); subprocess.run(["git", "-C", str(r), "add", "-A"], check=True)
         subprocess.run(["git", "-C", str(r), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "x"], check=True)
         return str(r)
-    lib = repo("utils", {"python/speech/src/speechkit/fastapi.py": 'from fastapi import APIRouter\ndef create_speech_router(*, settings):\n    router = APIRouter()\n    @router.get("/token")\n    def token(): ...\n    return router\n'})
-    svc = repo("chat", {"services/chat/src/chat/speech.py": 'from speechkit.fastapi import create_speech_router\nrouter = create_speech_router(settings=None)\n',
-                       "services/chat/src/chat/main.py": 'from fastapi import FastAPI\nfrom .speech import router as speech_router\napp = FastAPI()\napp.include_router(speech_router, prefix="/v1/speech")\n'})
-    svc2 = repo("shop", {"api/routes/speech.py": 'from speechkit.fastapi import create_speech_router\nrouter = create_speech_router(settings=None)\n',
-                           "api/main.py": 'from fastapi import FastAPI\nfrom routes import speech\napp = FastAPI()\napp.include_router(speech.router, prefix="/api/speech")\n'})
+    lib = repo("utils", {"python/voice/src/voicekit/fastapi.py": 'from fastapi import APIRouter\ndef create_voice_router(*, settings):\n    router = APIRouter()\n    @router.get("/token")\n    def token(): ...\n    return router\n'})
+    svc = repo("chat", {"services/chat/src/chat/voice.py": 'from voicekit.fastapi import create_voice_router\nrouter = create_voice_router(settings=None)\n',
+                       "services/chat/src/chat/main.py": 'from fastapi import FastAPI\nfrom .voice import router as voice_router\napp = FastAPI()\napp.include_router(voice_router, prefix="/v1/voice")\n'})
+    svc2 = repo("store", {"api/routes/voice.py": 'from voicekit.fastapi import create_voice_router\nrouter = create_voice_router(settings=None)\n',
+                           "api/main.py": 'from fastapi import FastAPI\nfrom routes import voice\napp = FastAPI()\napp.include_router(voice.router, prefix="/api/voice")\n'})
     assert [r.path for r in routes.routes(lib, "HEAD")] == ["/token"]                          # alone: unmounted
-    assert sorted(r.path for r in routes.estate_routes([(lib, "HEAD"), (svc, "HEAD"), (svc2, "HEAD")])) == ["/api/speech/token", "/v1/speech/token"]
+    assert sorted(r.path for r in routes.estate_routes([(lib, "HEAD"), (svc, "HEAD"), (svc2, "HEAD")])) == ["/api/voice/token", "/v1/voice/token"]
 
 
 def test_consumer_flags_a_map_entry_nothing_references(tmp_path):
     from cie import routes
     ui = tmp_path / "ui/src"; ui.mkdir(parents=True)
-    (ui / "api.ts").write_text('export const E = {\n  authToken: "/auth/token",\n  sites: "/v1/sites",\n};\n')
-    (ui / "use.ts").write_text('import { E } from "./api";\nfetch(E.sites);\n')
-    hits = routes.consumers(tmp_path / "ui", ["/auth/token", "/v1/sites"])
-    assert "[stale constant" in hits["/auth/token"][0][2] and "[stale constant" not in hits["/v1/sites"][0][2]
+    (ui / "api.ts").write_text('export const E = {\n  signIn: "/auth/login",\n  items: "/v1/items",\n};\n')
+    (ui / "use.ts").write_text('import { E } from "./api";\nfetch(E.items);\n')
+    hits = routes.consumers(tmp_path / "ui", ["/auth/login", "/v1/items"])
+    assert "[stale constant" in hits["/auth/login"][0][2] and "[stale constant" not in hits["/v1/items"][0][2]
 
 
 def test_a_function_named_inside_depends_is_not_a_consumer_call(tmp_path):
@@ -526,9 +526,9 @@ def test_the_import_line_of_a_removed_object_is_a_consequence(tmp_path):
 def test_member_on_another_imported_class_of_the_same_package_is_not_a_candidate(tmp_path):
     from cie import reach
     from cie.contracts import Finding
-    f = Finding(path="src/svc/services/gateway_client.py", line=0, symbol="CustomerInfo.rpm_limit", message="Public object was removed")
+    f = Finding(path="src/svc/services/billing_client.py", line=0, symbol="Account.quota", message="Public object was removed")
     (tmp_path / "src/svc/repositories").mkdir(parents=True)
-    (tmp_path / "src/svc/repositories/plan.py").write_text("from ..models import LlmPlan\nfrom ..services.gateway_client import CustomerInfo\ncols = (LlmPlan.rpm_limit,)\nx = CustomerInfo.rpm_limit\n")
+    (tmp_path / "src/svc/repositories/plan.py").write_text("from ..models import Plan\nfrom ..services.billing_client import Account\ncols = (Plan.quota,)\nx = Account.quota\n")
     assert [s.line for s in reach.candidates(tmp_path, [f])] == [4]
 
 
@@ -626,9 +626,7 @@ def test_removed_member_in_its_own_module_is_not_a_break_by_name(tmp_path):
     """))
     f = contracts.Finding("pkg/types.py", 1, "EncodedStr.decode", "Public object was removed")
     spans = [s for s in reach.candidates(tmp_path, [f]) if s.finding is f]
-    assert spans and all(not s.resolved for s in spans)          # was True for every one: own_module == finding.module
-    from cie import rules
-    assert all(rules.decide(s, str(tmp_path), "a", "b") is None for s in spans)     # left to the model / a person
+    assert spans == []        # was a 'verified' break on every one; a def named like a removed member is never a use
 
 
 def test_member_through_ambiguous_receiver_is_never_decided_by_rule():
@@ -702,3 +700,341 @@ def test_module_receiver_and_own_same_named_def_are_not_candidates(tmp_path):
     assert ("TaskRunResponse.context", 7) in lines          # a module-level instance (`settings`) may be an instance: still a candidate
     assert ("build_image", 8) not in lines                  # defined in this very file
     assert ("TaskRunResponse.context", 6) in {(s.finding.object_name, s.line) for s in reach.candidates(tmp_path, [field])}   # without the library's module list nothing changes
+
+
+def test_removed_member_through_a_library_variable_is_not_decided_by_rule(tmp_path):
+    """Flask daca74d9: `_cv_app.get(None)` (a ContextVar of the library) was 'verified' as a use of the removed
+    SecureCookieSession.get. Only a receiver that IS the class resolves a removed member."""
+    (tmp_path / "flask").mkdir()
+    (tmp_path / "flask" / "c.py").write_text(textwrap.dedent("""
+        from .globals import _cv_app
+        from .sessions import SecureCookieSession
+        def a(s):
+            _cv_app.get(None)
+            SecureCookieSession.get(s, "k")
+    """))
+    f = contracts.Finding("src/flask/sessions.py", 1, "SecureCookieSession.get", "Public object was removed")
+    from cie import rules
+    by_line = {s.line: s for s in reach.candidates(tmp_path, [f])}
+    assert 5 in by_line and not by_line[5].resolved and rules.decide(by_line[5], "/x", "a", "b") is None
+    assert by_line[6].resolved and rules.decide(by_line[6], "/x", "a", "b") is rules.RULE_BREAK
+
+
+def test_settings_module_detection_covers_directories():
+    """Prefect keeps its settings in settings/models/root.py: the file name alone says nothing."""
+    from cie.prcheck import SETTINGS_PATH as S
+    assert all(S.search(f) for f in ["src/prefect/settings/models/root.py", "jobs/config.py", "svc/server/settings.py"])
+    assert not any(S.search(f) for f in ["src/prefect/flows.py", "docs/configuration.md"])
+
+
+def _two_commit_lib(tmp_path):
+    """pkg at A: pkg/mod.py defines old_fn(a, b). At B: old_fn is gone, pkg/new.py defines new_fn(a, b)."""
+    import subprocess
+    lib = tmp_path / "lib"; (lib / "pkg").mkdir(parents=True)
+    run = lambda *a: subprocess.run(["git", "-C", str(lib), *a], check=True, capture_output=True, text=True).stdout.strip()
+    run("init", "-q"); run("config", "user.email", "t@t"); run("config", "user.name", "t")
+    (lib / "pkg" / "__init__.py").write_text("")
+    (lib / "pkg" / "mod.py").write_text("def old_fn(a, b):\n    return a + b\n")
+    run("add", "."); run("commit", "-q", "-m", "A"); a = run("rev-parse", "HEAD")
+    (lib / "pkg" / "mod.py").write_text("X = 1\n")
+    (lib / "pkg" / "new.py").write_text("def new_fn(a, b):\n    return a + b\n")
+    run("add", "."); run("commit", "-q", "-m", "B"); b = run("rev-parse", "HEAD")
+    return str(lib), a, b
+
+
+def test_fixcheck_ladder_good_fix_bad_fix_and_behaviour_change(tmp_path):
+    from cie import fixcheck
+    lib, a, b = _two_commit_lib(tmp_path)
+    cons = tmp_path / "cons"; (cons / "app").mkdir(parents=True)
+    (cons / "app" / "__init__.py").write_text("")
+    src = "from pkg.mod import old_fn\n\nRESULT = old_fn(1, 2)\n"
+    (cons / "app" / "main.py").write_text(src)
+    f = contracts.Finding("pkg/mod.py", 1, "old_fn", "Public object was removed")
+    args = dict(target=f, findings=[f], lib_root=lib, package="pkg", old_ref=a, new_ref=b, consumer_root=str(cons))
+
+    good = fixcheck.check(src, "app/main.py", [fixcheck.Edit("app/main.py", 1, 1, "from pkg.new import new_fn as old_fn")], **args)
+    assert [r.status for r in good.rungs] == ["pass", "pass", "pass", "pass"] and good.level == "runs", good.summary()
+    assert not good.behaviour_change
+
+    wrong = fixcheck.check(src, "app/main.py", [fixcheck.Edit("app/main.py", 1, 1, "from pkg.mod import new_fn as old_fn")], **args)
+    assert wrong.level == "parses" and "pkg.mod has no `new_fn`" in wrong.rungs[1].detail       # stops at resolves
+
+    broken = fixcheck.check(src, "app/main.py", [fixcheck.Edit("app/main.py", 1, 1, "from pkg.new import (")], **args)
+    assert broken.level == "fails"
+
+    unfixed = fixcheck.check(src, "app/main.py", [fixcheck.Edit("app/main.py", 3, 3, "RESULT = old_fn(1, 2)  # todo")], **args)
+    assert unfixed.level == "parses" and "has no `old_fn`" in unfixed.rungs[1].detail           # the edited line still names it
+
+    partial = fixcheck.check(src, "app/main.py", [fixcheck.Edit("app/main.py", 3, 3, "RESULT = 3")], **args)
+    assert partial.rungs[2].status == "fail" and "still breaks at line 1" in partial.rungs[2].detail   # the import is left
+
+    gutted = fixcheck.check(src, "app/main.py", [fixcheck.Edit("app/main.py", 1, 1, ""),
+                                                 fixcheck.Edit("app/main.py", 3, 3, "RESULT = 3")], **args)
+    assert gutted.level == "runs" and "deletes `from pkg.mod import old_fn`" in gutted.behaviour_change   # runs, yet flagged
+
+
+def test_fixcheck_missing_dependency_is_not_a_failed_fix(tmp_path):
+    from cie import fixcheck
+    lib, a, b = _two_commit_lib(tmp_path)
+    cons = tmp_path / "cons"; cons.mkdir()
+    src = "import some_absent_dependency\nfrom pkg.mod import old_fn\n"
+    (cons / "tool.py").write_text(src)
+    f = contracts.Finding("pkg/mod.py", 1, "old_fn", "Public object was removed")
+    fc = fixcheck.check(src, "tool.py", [fixcheck.Edit("tool.py", 2, 2, "from pkg.new import new_fn as old_fn")], target=f,
+                        findings=[f], lib_root=lib, package="pkg", old_ref=a, new_ref=b, consumer_root=str(cons))
+    assert fc.rungs[-1].status == "not_run" and "some_absent_dependency" in fc.rungs[-1].detail and fc.level == "clears"
+
+
+def test_fixcheck_apply_tracks_ranges_after_size_changes():
+    from cie import fixcheck
+    src = "a\nb\nc\nd\n"
+    new, ranges = fixcheck.apply(src, [fixcheck.Edit("f", 1, 1, "a1\na2"), fixcheck.Edit("f", 3, 3, "c1")])
+    assert new == "a1\na2\nb\nc1\nd\n" and ranges == [(1, 2), (4, 4)]
+
+
+def test_fixcheck_in_repo_file_importing_a_dropped_dependency_does_not_resolve(tmp_path):
+    """Prefect #20838 dropped typer; its own script still imported it, so no import-path fix could hold."""
+    import subprocess
+    from cie import fixcheck
+    lib = tmp_path / "lib"; (lib / "pkg").mkdir(parents=True); (lib / "scripts").mkdir()
+    run = lambda *a: subprocess.run(["git", "-C", str(lib), *a], check=True, capture_output=True, text=True).stdout.strip()
+    run("init", "-q"); run("config", "user.email", "t@t"); run("config", "user.name", "t")
+    (lib / "pyproject.toml").write_text('[project]\nname = "pkg"\ndependencies = ["typer>=0.9", "Rich"]\n')
+    (lib / "pkg" / "__init__.py").write_text(""); (lib / "pkg" / "root.py").write_text("app = 1\n")
+    src = "import typer\nfrom pkg.root import app\n"
+    (lib / "scripts" / "docs.py").write_text(src)
+    run("add", "."); run("commit", "-q", "-m", "A"); a = run("rev-parse", "HEAD")
+    (lib / "pyproject.toml").write_text('[project]\nname = "pkg"\ndependencies = ["rich"]\n')
+    (lib / "pkg" / "root.py").unlink(); (lib / "pkg" / "_app.py").write_text("app = 2\n")
+    run("add", "-A"); run("commit", "-q", "-m", "B"); b = run("rev-parse", "HEAD")
+    f = contracts.Finding("pkg/root.py", 1, "<module>", "Public object was removed")
+    fc = fixcheck.check(src, "scripts/docs.py", [fixcheck.Edit("scripts/docs.py", 2, 2, "from pkg._app import app")], target=f,
+                        findings=[f], lib_root=str(lib), package="pkg", old_ref=a, new_ref=b)
+    assert fc.level == "parses" and "imports `typer`, which pkg no longer depends on" in fc.rungs[1].detail
+    assert fixcheck.declared_dependencies(str(lib), a) == {"typer", "rich"}
+
+
+def _lib(tmp_path, v1: dict, v2: dict):
+    """A library repo with two commits; v1/v2 map paths to contents (None deletes)."""
+    import subprocess
+    lib = tmp_path / "lib"; lib.mkdir(parents=True)
+    run = lambda *a: subprocess.run(["git", "-C", str(lib), *a], check=True, capture_output=True, text=True).stdout.strip()
+    run("init", "-q"); run("config", "user.email", "t@t"); run("config", "user.name", "t")
+    refs = []
+    for files in (v1, v2):
+        for p, txt in files.items():
+            fp = lib / p
+            if txt is None:
+                fp.unlink()
+            else:
+                fp.parent.mkdir(parents=True, exist_ok=True); fp.write_text(txt)
+        run("add", "-A"); run("commit", "-q", "-m", "c"); refs.append(run("rev-parse", "HEAD"))
+    return str(lib), refs[0], refs[1]
+
+
+def _span_for(root, finding, line):
+    return next(s for s in reach.candidates(root, [finding]) if s.line == line)
+
+
+def test_fix_keyword_rewrite_holds_up(tmp_path):
+    from cie import fix, fixcheck
+    lib, a, b = _lib(tmp_path, {"pkg/__init__.py": "", "pkg/m.py": "def f(a, b, c=0):\n    return a + b + c\n"},
+                     {"pkg/m.py": "def f(*, a, b, c=0):\n    return a + b + c\n"})
+    cons = tmp_path / "cons"; cons.mkdir()
+    src = "from pkg.m import f\nX = f(1, 2, c=3)\n"
+    (cons / "app.py").write_text(src)
+    fd = contracts.Finding("pkg/m.py", 1, "f(a)", "Parameter kind was changed: positional or keyword -> keyword-only")
+    fx = fix.propose(_span_for(cons, fd, 2), src, lib, "pkg", None, a, b)
+    assert fx and fx[0].method == "keyword" and fx[0].exact and fx[0].edits[0].text == "X = f(a=1, b=2, c=3)"
+    fc = fixcheck.check(src, "app.py", fx[0].edits, target=fd, findings=[fd], lib_root=lib, package="pkg", old_ref=a,
+                        new_ref=b, consumer_root=str(cons))
+    assert fc.level == "runs" and not fc.behaviour_change, fc.summary()
+
+
+def test_fix_moved_import_and_changed_definition(tmp_path):
+    from cie import fix, fixcheck
+    lib, a, b = _lib(tmp_path, {"pkg/__init__.py": "", "pkg/m.py": "def helper(x):\n    return x\n\ndef other():\n    pass\n"},
+                     {"pkg/m.py": "def other():\n    pass\n", "pkg/util.py": "def helper(x):\n    return x\n"})
+    cons = tmp_path / "cons"; cons.mkdir()
+    src = "from pkg.m import helper, other\nY = helper(1)\n"
+    (cons / "app.py").write_text(src)
+    fd = contracts.Finding("pkg/m.py", 1, "helper", "Public object was removed")
+    fx = fix.propose(_span_for(cons, fd, 2), src, lib, "pkg", None, a, b)
+    mv = next(x for x in fx if x.method == "moved")
+    assert mv.exact and mv.edits[0].text == "from pkg.m import other\nfrom pkg.util import helper"
+    fc = fixcheck.check(src, "app.py", mv.edits, target=fd, findings=[fd], lib_root=lib, package="pkg", old_ref=a,
+                        new_ref=b, consumer_root=str(cons))
+    assert fc.level == "runs", fc.summary()
+    # same name, different body at the new home: still proposed, but never called exact
+    lib2, a2, b2 = _lib(tmp_path / "x", {"pkg/__init__.py": "", "pkg/m.py": "def helper(x):\n    return x\n"},
+                        {"pkg/m.py": "Z = 1\n", "pkg/util.py": "def helper(x):\n    return -x\n"})
+    mv2 = fix.moved(_span_for(cons, fd, 2), src, lib2, "pkg", None, a2, b2)
+    assert mv2 and not mv2.exact and "definition changed" in mv2.note
+
+
+def test_fix_by_analogy_from_the_change_diff(tmp_path):
+    from cie import fix
+    diff = ("@@ -1,2 +1,2 @@\n-from pkg.root import app\n+from pkg._app import app\n"
+            "@@ -9,2 +9,2 @@\n-    from pkg.root import app, is_interactive\n+    from pkg._app import app, is_interactive\n")
+    assert fix.substitutions(diff, "pkg.root").most_common(1)[0] == (("pkg.root", "pkg._app"), 2)
+    cons = tmp_path / "cons"; cons.mkdir()
+    src = "def main():\n    from pkg.root import app\n    app()\n"
+    (cons / "tool.py").write_text(src)
+    fd = contracts.Finding("pkg/root.py", 1, "<module>", "Public object was removed")
+    fx = fix.analogy(_span_for(cons, fd, 2), src, diff)
+    assert fx and fx.edits[0].text == "    from pkg._app import app" and fx.extra["count"] == 2
+
+
+def test_fix_analogy_skips_half_of_a_multiline_edit():
+    from cie import fix
+    diff = "@@ -1 +1,3 @@\n-from pkg.root import app\n+from pkg._utilities import (\n+    app,\n+)\n"
+    assert not fix.substitutions(diff, "pkg.root")
+
+
+def test_member_moved_to_a_base_class_is_not_a_verified_break(tmp_path):
+    """flask 1d8b53f7: Flask's members moved into sansio App; griffe reports them removed from Flask."""
+    from cie import rules
+    lib, a, b = _lib(tmp_path, {"pkg/__init__.py": "", "pkg/app.py": "class Flask:\n    jinja_options = {}\n    def run(self):\n        return self.jinja_options\n"},
+                     {"pkg/app.py": "from .sansio.app import App\nclass Flask(App):\n    def run(self):\n        return self.jinja_options\n",
+                      "pkg/sansio/__init__.py": "", "pkg/sansio/app.py": "class App:\n    jinja_options = {}\n"})
+    f = contracts.Finding("pkg/app.py", 1, "Flask.jinja_options", "Public object was removed")
+    gone = contracts.Finding("pkg/app.py", 1, "Flask.vanished", "Public object was removed")
+    assert rules.inherited(f, lib, b) and not rules.inherited(gone, lib, b)
+    s = _span(f, "return self.jinja_options", receiver="self")
+    assert rules.decide(s, lib, a, b).status == "needs_review"
+    assert rules.decide(_span(gone, "self.vanished", receiver="self"), lib, a, b) is rules.RULE_BREAK
+
+
+def test_attribute_writes_are_not_uses_but_augmented_assignments_are(tmp_path):
+    (tmp_path / "c.py").write_text("class C:\n    def __init__(self, kw):\n        self.name = kw['name']\n        self.name += '!'\n        print(self.name)\n")
+    f = contracts.Finding("pkg/m.py", 1, "C.name", "Public object was removed")
+    assert sorted(s.line for s in reach.candidates(tmp_path, [f])) == [4, 5]
+
+
+def test_keyword_on_an_unrelated_callee_is_ambiguous(tmp_path):
+    """pandas 1a561f8f: `plot(..., kind=kind)` is not WrappedCythonOp(kind=); still a candidate, never auto-verified."""
+    (tmp_path / "c.py").write_text("def f(backend, op, data):\n    backend.plot(data, kind='line')\n    WrappedCythonOp(kind='x', how='sum')\n")
+    f = contracts.Finding("pandas/core/groupby/ops.py", 1, "WrappedCythonOp.__init__(kind)", "Parameter was removed")
+    by_line = {s.line: s for s in reach.candidates(tmp_path, [f])}
+    assert by_line[2].ambiguous and not by_line[3].ambiguous
+
+
+def test_verify_survives_a_dropped_connection(capsys):
+    """pandas history run, 2026-10-07: one DNS failure mid-run crashed the benchmark. Transient errors are review items."""
+    from cie import verify
+
+    class Flaky:
+        calls = 0
+        def system_one(self, **kw):
+            Flaky.calls += 1
+            raise verify.TypeSafeAPIConnectionError("Connection error")
+        def close(self): ...
+    out = verify.verify([{"i": i} for i in range(5)], client=Flaky())
+    assert out == [verify.SKIPPED] * 5 and Flaky.calls == 3            # stops calling after three in a row
+    assert "5 model call(s) failed" in capsys.readouterr().err
+
+
+def test_fixcheck_flags_private_library_names_in_a_consumer_fix(tmp_path):
+    from cie import fixcheck
+    lib, a, b = _lib(tmp_path, {"pkg/__init__.py": "", "pkg/m.py": "def helper():\n    pass\n"},
+                     {"pkg/m.py": "def _helper():\n    pass\n"})
+    cons = tmp_path / "cons"; cons.mkdir()
+    src = "from pkg.m import helper\nhelper()\n"
+    (cons / "app.py").write_text(src)
+    f = contracts.Finding("pkg/m.py", 1, "helper", "Public object was removed")
+    fc = fixcheck.check(src, "app.py", [fixcheck.Edit("app.py", 1, 1, "from pkg.m import _helper as helper")], target=f, findings=[f],
+                        lib_root=lib, package="pkg", old_ref=a, new_ref=b, consumer_root=str(cons))
+    assert fc.level == "runs" and fc.private == "pkg.m._helper" and "PRIVATE API" in fc.summary()
+
+
+def test_pr_packages_any_depth_and_stub_files(tmp_path):
+    """pydantic #12924 changed pydantic-core/python/pydantic_core/*.pyi; a two-levels-deep scan never saw the package."""
+    from cie import prcheck
+    files = {"pydantic/__init__.py": "", "pydantic/main.py": "x = 1\n",
+             "pydantic-core/python/pydantic_core/__init__.py": "", "pydantic-core/python/pydantic_core/_pydantic_core/__init__.pyi": "",
+             "src/click/__init__.py": "", "src/click/core.py": "", "scripts/tool.py": "", "tests/test_a.py": ""}
+    edit = {k: v + "# changed\n" for k, v in files.items() if k != "pydantic/__init__.py" and not k.endswith("core/__init__.py")}
+    lib, a, b = _lib(tmp_path, files, edit)
+    assert prcheck.packages(lib, a, b) == [("", "pydantic"), ("pydantic-core/python", "pydantic_core"), ("src", "click")]
+
+
+def test_member_of_a_class_with_an_external_base_is_not_verified_removed(tmp_path):
+    """fastapi #16236 removed APIRouter.app because starlette's Router (an external base) provides it."""
+    from cie import rules
+    lib, a, b = _lib(tmp_path, {"fastapi/__init__.py": "", "fastapi/routing.py": "from starlette import routing\nclass APIRouter(routing.Router):\n    async def app(self, scope):\n        pass\n"},
+                     {"fastapi/routing.py": "from starlette import routing\nclass APIRouter(routing.Router):\n    pass\n"})
+    f = contracts.Finding("fastapi/routing.py", 1, "APIRouter.app", "Public object was removed")
+    assert rules.inherited(f, lib, b)
+    assert rules.decide(_span(f, "await self.app(scope)", receiver="self"), lib, a, b).status == "needs_review"
+
+
+def test_instance_attributes_make_a_member_ambiguous(tmp_path):
+    (tmp_path / "c.py").write_text(textwrap.dedent("""
+        class APIRoute:
+            def __init__(self):
+                self.app = None
+        def f(route):
+            return route.app
+    """))
+    fd = contracts.Finding("fastapi/routing.py", 1, "APIRouter.app", "Public object was removed")
+    s = [x for x in reach.candidates(tmp_path, [fd]) if x.line == 6][0]
+    assert s.ambiguous
+
+
+def test_signature_reader_skips_overload_stubs(tmp_path):
+    """click's progressbar: a keyword-only @overload ahead of the implementation was read as the signature, so every
+    positional call 'broke' (still-broken-at-HEAD scan, examples/termui/termui.py)."""
+    from cie import positional
+    src = textwrap.dedent("""
+        import typing as t
+        @t.overload
+        def progressbar(*, length: int, label: str = None): ...
+        @t.overload
+        def progressbar(iterable, length=None, label=None): ...
+        def progressbar(iterable=None, length=None, label=None, show_eta=True):
+            pass
+    """)
+    lib, a, b = _lib(tmp_path, {"pkg/__init__.py": "", "pkg/termui.py": "def progressbar(iterable=None, length=None, label=None, show_eta=True):\n    pass\n"},
+                     {"pkg/termui.py": src})
+    assert positional.positional_params(lib, b, "pkg/termui.py", "progressbar") == ["iterable", "length", "label", "show_eta"]
+    f = contracts.Finding("pkg/termui.py", 1, "progressbar(show_eta)", "Positional parameter was moved")
+    assert positional.breaks("progressbar(items, label='x')", f, lib, a, b) is False
+
+
+def test_signature_reader_finds_defs_under_version_guards():
+    from cie import positional
+    import ast as _ast
+    tree = _ast.parse("import sys\nif sys.version_info >= (3, 11):\n    def f(a, b): ...\nelse:\n    def f(a): ...\n")
+    assert positional.find_def(tree, "f").args.args[0].arg == "a"
+
+
+def test_subclass_defining_the_member_and_getattr_classes(tmp_path):
+    """huggingface_hub 3b306043 moved fields from HfFileSystemResolvedPath down into a subclass that defines them;
+    werkzeug's Authorization serves attributes through __getattr__."""
+    from cie import rules
+    (tmp_path / "c.py").write_text(textwrap.dedent("""
+        class HfFileSystemResolvedRepositoryPath(HfFileSystemResolvedPath):
+            path_in_repo: str
+            def unresolve(self):
+                return self.path_in_repo
+        class Other(HfFileSystemResolvedPath):
+            def show(self):
+                return self.path_in_repo
+    """))
+    f = contracts.Finding("pkg/fs.py", 1, "HfFileSystemResolvedPath.path_in_repo", "Public object was removed")
+    assert sorted(s.line for s in reach.candidates(tmp_path, [f])) == [8]      # only the subclass that does NOT define it
+    lib, a, b = _lib(tmp_path / "g", {"pkg/__init__.py": "", "pkg/auth.py": "class Authorization:\n    username = None\n"},
+                     {"pkg/auth.py": "class Authorization:\n    def __getattr__(self, name):\n        return self.parameters.get(name)\n"})
+    assert rules.inherited(contracts.Finding("pkg/auth.py", 1, "Authorization.username", "Public object was removed"), lib, b)
+
+
+def test_head_scan_binds_judges_calls_against_todays_signature():
+    import ast as _ast, importlib.util, sys
+    spec = importlib.util.spec_from_file_location("head_scan", "spike/head_scan.py"); hs = importlib.util.module_from_spec(spec); spec.loader.exec_module(hs)
+    fn = _ast.parse("class Flask:\n    def finalize_request(self, ctx, rv, from_error_handler=False): ...\n").body[0].body[0]
+    n = {"finalize_request"}
+    assert hs.binds("self.finalize_request(ctx, rv, from_error_handler=True)", fn, n) is True      # flask after #5818
+    assert hs.binds("self.finalize_request(rv)", fn, n) is False                                    # pre-#5818 shape: missing rv
+    assert hs.binds("self.finalize_request(ctx, rv, nope=1)", fn, n) is False
+    assert hs.binds("self.finalize_request(ctx, rv=rv, ctx=ctx)", fn, n) is False                    # given twice
+    assert hs.binds("self.finalize_request(*args)", fn, n) is None
