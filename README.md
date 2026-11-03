@@ -19,6 +19,27 @@ what changed (griffe API diff)  ─►  who might use it (AST candidates)  ─�
                                      ❌ breaks · ❓ for a person · ✅ still valid — each with file:line
 ```
 
+## A real break it catches
+
+On 2026-02-25 Prefect's CLI rewrite ([#20838](https://github.com/PrefectHQ/prefect/pull/20838)) removed
+`prefect.cli.root`. `scripts/generate_cli_docs.py` still imported it, and stayed broken for 145 days until
+[#22503](https://github.com/PrefectHQ/prefect/pull/22503) deleted the import. Here is aftershock on that commit: rules only,
+no API key, about five seconds. The change has 538 API findings, and one line breaks:
+
+```console
+$ git -C prefect worktree add ../prefect-20838 e977a2ca64
+$ aftershock api-impact --lib prefect --package prefect --search src \
+    --old e977a2ca64~1 --new e977a2ca64 --consumer ../prefect-20838/scripts
+Contract diff prefect e977a2ca64~1 -> e977a2ca64: 538 findings
+...
+Verified consequence (1 in production code, 0 in tests):
+  generate_cli_docs.py:399  prefect.cli.root.<module>: Public object was removed
+      reach=1.00  break=breaks_consumer (1.00)
+```
+
+The elided lines are the spend summary and 14 advisory rows for parameters whose defaults changed, which only a person can
+judge. Add `--format md` to get the same report as a PR comment.
+
 ## Install
 
 ```bash
