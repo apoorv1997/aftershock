@@ -1069,6 +1069,25 @@ def test_member_is_not_reached_by_bare_name_or_a_same_named_class_elsewhere(tmp_
     assert not [s for s in reach.candidates(tmp_path, [f_init]) if s.file == "pkg/v1/fields.py"]
 
 
+def test_builtins_stdlib_modules_and_locals_do_not_reach_a_module_function(tmp_path):
+    """Prefect removed prefect.cli.dashboard.open and changed prefect.cli.flow_run.inspect and worker.start: the builtin
+    `open(...)`, the stdlib `inspect` module and a local `start` variable are none of them."""
+    (tmp_path / "s.py").write_text(
+        "import inspect\nimport prefect\n"
+        "def f(p, info):\n"
+        "    with open(p) as fh:\n"
+        "        doc = inspect.cleandoc(fh.read())\n"
+        "    start = info.get('start')\n"
+        "    return start.get('line')\n")
+    (tmp_path / "t.py").write_text("from prefect.cli.dashboard import *\nopen()\n")
+    fs = [contracts.Finding("src/prefect/cli/dashboard.py", 1, "open", "Public object was removed"),
+          contracts.Finding("src/prefect/cli/flow_run.py", 1, "inspect(web)", "Parameter kind was changed"),
+          contracts.Finding("src/prefect/cli/worker.py", 1, "start(worker_name)", "Parameter kind was changed")]
+    got = {(s.file, s.line) for s in reach.candidates(tmp_path, fs)}
+    assert not [x for x in got if x[0] == "s.py"]
+    assert ("t.py", 2) in got          # a star import from the library may bind `open`
+
+
 def test_rules_only_install_without_the_model_extra(monkeypatch, capsys):
     """`pip install aftershock` without [model]: nothing imports the SDK at load time, and undecided spans go to review."""
     from aftershock import verify

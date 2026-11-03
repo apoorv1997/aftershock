@@ -7,6 +7,7 @@ transports vs clients)."""
 from __future__ import annotations
 
 import ast
+import builtins
 import pathlib
 from dataclasses import dataclass
 
@@ -26,6 +27,9 @@ class Span:
     alias: str = ""      # the callee's local name when it differs from the finding's (`_lk_start_span`)
     ambiguous: bool = False   # member reached through an unknown receiver AND the consumer defines a same-named member itself
     resolved: bool = False    # the callee / reference resolves to the library through imports (rules may decide; else the model)
+
+
+_BUILTINS = frozenset(dir(builtins))
 
 
 def class_members(cls: ast.ClassDef) -> set[str]:
@@ -365,6 +369,9 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
         rel_names = _relative_names(tree, imports)
         lib_typed = _library_typed(tree, imports, exports, package)
         local_classes = {n.name for n in ast.walk(tree) if isinstance(n, ast.ClassDef)}
+        # `from <library module> import *` (or a relative one) may bind any name, builtins included
+        star_lib = any(isinstance(n, ast.ImportFrom) and any(a.name == "*" for a in n.names)
+                       and (n.level > 0 or (n.module or "").split(".")[0] == package) for n in ast.walk(tree))
         # module-level names this file defines itself: `REQUEST_ID_HEADER = "X-Request-ID"` is not the
         # library's constant of the same name
         def _module_scope(stmts):
@@ -397,6 +404,20 @@ def candidates(consumer_root: str | pathlib.Path, findings: list[Finding], conte
             if d_ and "." not in d_ and "." not in obj and d_ not in imports and own_module != f.module \
                     and (d_ in local_assigned or d_ in local_classes or d_ in local_defs):
                 return False
+            head_ = (d_ or "").split(".")[0]
+            if head_ and own_module != f.module:
+                # a name imported from outside the library is not the library's: `import inspect; inspect.cleandoc`
+                # is not prefect.cli.flow_run.inspect
+                r_, lib = imports.get(head_, ""), f.module.split(".")[0]
+                if r_ and head_ not in rel_names and not (r_ == lib or r_.startswith(lib + ".")):
+                    return False
+                if isinstance(ref_node, ast.Name) and head_ not in imports:
+                    # a builtin the file does not rebind: `open(...)` is not prefect.cli.dashboard.open
+                    if head_ in _BUILTINS and not star_lib:
+                        return False
+                    # a local variable of the enclosing function: `start = info.get("start")`
+                    if "." not in obj and shadowed(ref_node, head_):
+                        return False
             # a module-level object reached through a receiver (`admin.create_user(...)`): the receiver must
             # be the library itself (`import httpx; httpx.create_ssl_context`, `from pkg.routes import admin`).
             # A local object's method of the same name is not it (`AdminService.update_user` is not the module

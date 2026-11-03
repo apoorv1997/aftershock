@@ -116,3 +116,23 @@ click true break lines 87 -> 88, false 0 -> 0; flask 74 -> 74, false 0 -> 0, rev
 the sansio base, correctly left to review); werkzeug 319 -> 337, false 3 -> 0, review lines 971 -> 926. One fix found the extra
 true breaks: when several classes change the same member, a reference is paired with the first finding it can reach (a
 subclass's own override, the sansio class's own property), not only the first finding of that name.
+
+## 2026-11-03 builtins, stdlib modules and locals
+
+Running `api-impact` on Prefect's CLI rewrite (e977a2ca64) against its own `scripts/` gave the one real break
+(`generate_cli_docs.py:399`, the 145-day escape) and 33 review items, all look-alikes: the builtin `open(...)` and `set(...)`
+matched the removed `prefect.cli.dashboard.open` and `prefect.cli.cloud.set`, `import inspect; inspect.cleandoc` matched
+`prefect.cli.flow_run.inspect`, and a local `start = info.get(...)` matched `prefect.cli.worker.start`. Rules, for a reference
+outside the changed module:
+
+| reference | rule |
+|---|---|
+| its head is imported from outside the library (`import inspect`) | not the library's object |
+| a bare builtin name the file does not import, unless it star-imports from the library | the builtin |
+| a bare name bound in the enclosing function, for a module-level object | a local variable |
+
+After: 1 verified, 0 review. Rules-only history (`--since 2023-01-01 --max-commits 40`), before -> after: click 109/109
+verified true, 131 spans -> 131; flask 74/74, 502 -> 502; werkzeug 435/435, 1901 -> 1885; Prefect 186/187, 1407 -> 343 spans.
+Recall is unchanged except Prefect, 184 -> 179 truth lines: all 50 lost spans sit on lines e977a2ca64 rewrote while moving
+from typer to cyclopts, and every one is a look-alike (`with open(file_path)`, `set(recipe_inputs)`,
+`inspect.getmembers`, a local `run` / `container` / `status` / `watch`). No true break was lost.

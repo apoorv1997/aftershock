@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fewer look-alikes left for review: a builtin (`open`, `set`), a stdlib module (`import inspect`) or a function's local
+  variable no longer matches a library's same-named module-level object. On Prefect's history, review spans fall from
+  1407 to 343 with no true break lost.
+
 ## 0.1.0
 
 First release on PyPI.
