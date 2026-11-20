@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aftershock"
-version = "0.1.0"
+version = "0.1.1"
 description = "Finds the exact lines a library, API or config change breaks in other code — verified, with file:line, never a risk score."
 readme = "README.md"
 license = { text = "MIT" }

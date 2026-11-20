@@ -1,10 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.1.1
 
 - Fewer look-alikes left for review: a builtin (`open`, `set`), a stdlib module (`import inspect`) or a function's local
   variable no longer matches a library's same-named module-level object. On Prefect's history, review spans fall from
   1407 to 343 with no true break lost.
+- README: a real break it catches (Prefect's CLI rewrite and the script it left broken for 145 days), with the command
+  to reproduce it.
 
 ## 0.1.0
 
